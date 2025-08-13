@@ -1,7 +1,7 @@
 # cSLO image compilation
 # Made by Brandon Anderson
 # University of Pennsylvania
-# December 2023
+
 
 import tkinter as tk
 from tkinter import filedialog
@@ -21,7 +21,7 @@ def find_image_files(input_directory):
     image_files = []
     for root, dirs, files in os.walk(input_directory):
         for file in files:
-            if file.endswith('.tif') and ("BAF" in file or "IRAF" in file):
+            if file.endswith('.tif'):
                 image_files.append(os.path.join(root, file))
     return image_files
 
