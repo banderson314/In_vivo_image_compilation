@@ -4,48 +4,9 @@ from datetime import datetime
 import math
 
 def user_defined_settings():
-	def on_ok_click(event=None):
-		global document_title, subtitle, number_of_rows, number_of_columns
-		
-		document_title = TitleFrame.title_entry.get()
-		subtitle = TitleFrame.subtitle_entry.get()
-		number_of_rows = int(RowColumnFrame.row_entry.get())
-		number_of_columns = int(RowColumnFrame.column_entry.get())
-
-		root.destroy()
-
 	def on_close_window(event=None):
 		root.destroy()
 		exit()
-
-
-
-	class DirectoryFrameOriginal(tk.Frame):
-		def __init__(self, parent):
-			super().__init__(parent)
-
-			label = tk.Label(self, text="Image directory:")
-			label.grid(row=0, column=0, padx=5, pady=0)
-
-			self.entry = tk.Entry(self, width=30)
-			self.entry.grid(row=0, column=1, padx=5, pady=0)
-
-			button = tk.Button(self, text="Choose", command=self.choose_directory)
-			button.grid(row=0, column=2, padx=5, pady=0)
-		
-			self.cslo_var = tk.BooleanVar(value=False)
-			cslo_cb = tk.Checkbutton(self, text="cSLO", variable=self.cslo_var)
-			cslo_cb.grid(row=0, column=3, padx=5, pady=0)
-
-			self.oct_var = tk.BooleanVar(value=False)
-			oct_cb = tk.Checkbutton(self, text="OCT", variable=self.oct_var)
-			oct_cb.grid(row=0, column=4, padx=5, pady=0)			
-
-		def choose_directory(self):
-			directory = filedialog.askdirectory()
-			self.entry.delete(0, tk.END)
-			self.entry.insert(0, directory)
-
 
 	class DirectoryFrame(tk.Frame):
 		def __init__(self, parent):
@@ -148,6 +109,39 @@ def user_defined_settings():
 				row['entry'].insert(0, directory)
 				self.on_entry_change(event=type('Event', (), {'widget': row['entry']})())
 
+
+	class MouseInfoFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+
+			label = tk.Label(self, text="Mouse info:")
+			label.grid(row=0, column=0, padx=5, pady=0)
+
+			self.excel_entry = tk.Entry(self, width=42)
+			self.excel_entry.insert(0, "[Excel file location]")
+			self.excel_entry.grid(row=0, column=1, padx=5, pady=0)
+
+			choose_button = tk.Button(self, text="Choose", command=self.choose_file)
+			choose_button.grid(row=0, column=2, padx=5, pady=0)
+
+			edit_button = tk.Button(self, text="Edit info", command=self.edit_mouse_info)
+			edit_button.grid(row=0, column=3, padx=5, pady=0)
+
+			cslo_eartag_button = tk.Button(self, text="Determine cSLO/ear tag number based off of cSLO images",
+								  command=self.determine_cslo_eartag_number)
+			cslo_eartag_button.grid(row=1, column=0, columnspan=4, padx=5, pady=3)
+
+		def choose_file(self):
+			excel_file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
+			if excel_file_path:
+				self.excel_entry.delete(0, tk.END)
+				self.excel_entry.insert(0, excel_file_path)
+		
+		def edit_mouse_info(self):
+			print("Button has no function yet")
+		
+		def determine_cslo_eartag_number(self):
+			print("This button doesn't do anything right now")
 
 
 	class TitleFrame(tk.Frame):
@@ -298,6 +292,57 @@ def user_defined_settings():
 			else:
 				self.oct_crop_entry.config(state="disabled")
 	
+	class ImagesToUseFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+
+			label = tk.Label(self, text="Images to use")
+			label.grid(row=0, column=0, padx=5)
+
+	class PresetFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+
+			label = tk.Label(self, text="Presets")
+			label.grid(row=0, column=0, padx=5)
+
+
+	class ConfirmationFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+			
+			# Preview layout
+			preview_layout_button = tk.Button(self, text="Preview layout", 
+									 command=self.preview_layout)
+			preview_layout_button.grid(row=0, column=0, padx=5)
+
+			# Preview layout + images
+			preview_layout_images_button = tk.Button(self, text="Preview layout & images",
+											command=self.preview_layout_and_images)
+			preview_layout_images_button.grid(row=0, column=1, padx=5)
+
+			# Okay button
+			okay_button = tk.Button(self, text="Okay", command=self.on_ok_click)
+			okay_button.grid(row=0, column=2, padx=5)
+
+		def preview_layout(self):
+			print("Nope")
+		
+		def preview_layout_and_images(self):
+			print("None")
+
+		def on_ok_click(self, event=None):
+			global document_title, subtitle, number_of_rows, number_of_columns
+			
+			document_title = title_frame.title_entry.get()
+			subtitle = title_frame.subtitle_entry.get()
+			number_of_rows = int(row_col_frame.row_entry.get())
+			number_of_columns = int(row_col_frame.column_entry.get())
+
+			print("This button is currently being worked on")
+			root.destroy()
+
+
 
 	root = tk.Tk()
 	root.title("Settings")
@@ -307,6 +352,9 @@ def user_defined_settings():
 
 	directory_frame = DirectoryFrame(root)
 	directory_frame.pack(anchor='w')
+
+	mouse_info_frame = MouseInfoFrame(root)
+	mouse_info_frame.pack(anchor='w', pady=3)
 
 	title_frame = TitleFrame(root)
 	title_frame.pack(anchor='w', fill='x')
@@ -319,6 +367,15 @@ def user_defined_settings():
 
 	oct_crop_frame = OctCropFrame(root)
 	oct_crop_frame.pack(anchor='w')
+
+	images_to_use_frame = ImagesToUseFrame(root)
+	images_to_use_frame.pack(anchor='w')
+
+	preset_frame = PresetFrame(root)
+	preset_frame.pack(anchor='w')
+
+	confirmation_frame = ConfirmationFrame(root)
+	confirmation_frame.pack(anchor='s', pady=10)
 
 	root.mainloop()
 
