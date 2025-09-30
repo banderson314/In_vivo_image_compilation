@@ -2,8 +2,13 @@ import tkinter as tk
 from tkinter import filedialog
 from datetime import datetime
 import math
+import os
 
 def user_defined_settings():
+	# Allowed image extensions
+	image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
+
+
 	def on_close_window(event=None):
 		root.destroy()
 		exit()
@@ -75,6 +80,10 @@ def user_defined_settings():
 				row['cslo_cb'].grid(row=i, column=3, padx=5, pady=0)
 				row['oct_cb'].grid(row=i, column=4, padx=5, pady=0)
 
+			# Update the number of mice
+			number_of_mice_frame.mouse_set.clear()
+			number_of_mice_frame.figure_out_how_many_mice()
+
 
 
 		def checkbox_toggle(self, entry_widget, which):
@@ -96,6 +105,59 @@ def user_defined_settings():
 			# Remove extra empty rows
 			self.cleanup_empty_rows()
 
+			def check_directory(directory):
+				cslo_or_oct_directory = ""
+
+				# List contents of the directory
+				contents = os.listdir(directory)
+
+				# Filter out directories and files
+				subdirs = [os.path.join(directory, d) for d in contents if os.path.isdir(os.path.join(directory, d))]
+				files = [f for f in contents if os.path.isfile(os.path.join(directory, f))]
+
+				# cSLO images: Check if each subdir contains "OS" and "OD"
+				if subdirs:
+					valid = True
+					for subdir in subdirs:
+						if not (os.path.isdir(os.path.join(subdir, "OS")) or os.path.isdir(os.path.join(subdir, "OD"))):
+							valid = False
+							break
+					if valid:
+						cslo_or_oct_directory = "cslo"
+						return cslo_or_oct_directory
+
+				# OCT images: Check if the directory contains image files
+
+				# Get all files in directory (ignores subdirectories themselves)
+				files = [f for f in os.listdir(inputted_directory) 
+						if os.path.isfile(os.path.join(inputted_directory, f))]
+
+				# Look for image files with "_OD_" or "_OS_" in the filename
+				for f in files:
+					ext = os.path.splitext(f)[1].lower()
+					if ext in image_extensions and ("_OD_" in f or "_OS_" in f):
+						cslo_or_oct_directory = "oct"
+						return cslo_or_oct_directory
+
+				return cslo_or_oct_directory
+
+			inputted_directory = entry_widget.get()
+			if os.path.exists(inputted_directory):
+				# Determine if the images are cSLO or OCT and update the checkbox accordingly
+				cslo_or_oct_directory = check_directory(inputted_directory)
+				
+				if cslo_or_oct_directory == "cslo":
+					row = next(r for r in self.rows if r['entry'] == entry_widget)
+					row['cslo_var'].set(True)
+					row['oct_var'].set(False)
+				elif cslo_or_oct_directory == "oct":
+					row = next(r for r in self.rows if r['entry'] == entry_widget)
+					row['oct_var'].set(True)
+					row['cslo_var'].set(False)
+
+				# Update the number of mice
+				number_of_mice_frame.figure_out_how_many_mice()
+
 		def choose_directory(self, row_index=None, entry_widget=None):
 			directory = filedialog.askdirectory()
 			if directory:
@@ -108,6 +170,81 @@ def user_defined_settings():
 				row['entry'].delete(0, tk.END)
 				row['entry'].insert(0, directory)
 				self.on_entry_change(event=type('Event', (), {'widget': row['entry']})())
+
+		def get_data(self):
+			directories = []
+			for row in self.rows:
+				path = row['entry'].get().strip()
+				if path:  # skip blanks
+					if row['cslo_var'].get():
+						image_type = "cslo"
+					elif row['oct_var'].get():
+						image_type = "oct"
+					else:
+						image_type = None
+
+					directories.append((path, image_type))
+			
+			return {"directories": directories}
+
+	class NumberOfMiceFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+			self.mice_set = set()
+
+			text_label = tk.Label(self, text="Number of mice found:")
+			text_label.grid(row=0, column=0, padx=5)
+
+			number_of_mice = 0
+			mouse_number_label = tk.Label(self, text=number_of_mice)
+			mouse_number_label.grid(row=0, column=1, padx=5)
+
+			determine_button = tk.Button(self, text="Determine", command=self.figure_out_how_many_mice)
+			determine_button.grid(row=0, column=2, padx=5)
+
+		def figure_out_how_many_mice(self, event=None):
+			directory_info_from_user = directory_frame.get_data().get("directories")
+			
+			for entry in directory_info_from_user:
+				directory_path, image_type = entry
+
+				if image_type == "oct":
+					
+					for file in os.listdir(directory_path):
+						ext = os.path.splitext(file)[1].lower()
+						if ext in image_extensions:
+							mouse_number = file.split("_")[0]
+							self.mice_set.add(mouse_number)
+					
+				elif image_type == "cslo":
+					for item in os.listdir(directory_path):
+						subfolder_path = os.path.join(directory_path, item)
+						
+						# Check if it is a directory
+						if os.path.isdir(subfolder_path):
+							# Get a list of items inside this subfolder
+							sub_items = os.listdir(subfolder_path)
+							
+							# Check if both "OD" and "OS" exist as folders
+							if "OD" in sub_items and "OS" in sub_items:
+								od_path = os.path.join(subfolder_path, "OD")
+								os_path = os.path.join(subfolder_path, "OS")
+								
+								# Make sure both are directories, not files
+								if os.path.isdir(od_path) and os.path.isdir(os_path):
+									self.mice_set.add(item)
+		
+			number_of_mice = len(self.mice_set)
+			self.update_mouse_number(number_of_mice)
+
+		def update_mouse_number(self, number_of_mice):
+			mouse_number_label = tk.Label(self, text=number_of_mice)
+			mouse_number_label.grid(row=0, column=1, padx=5)
+		
+		def get_data(self):
+			return {
+				"mice_numbers_set": self.mice_set
+			}
 
 
 	class MouseInfoFrame(tk.Frame):
@@ -165,6 +302,13 @@ def user_defined_settings():
 			self.subtitle_entry = tk.Entry(self, width=40)
 			self.subtitle_entry.insert(0, today_str)
 			self.subtitle_entry.grid(row=1, column=1, padx=5, pady=0, sticky="we")
+
+		def get_data(self):
+			return {
+				"document_title": self.title_entry.get(),
+				"subtitle": self.subtitle_entry.get()
+			}
+				
 
 
 	class RowColumnFrame(tk.Frame):
@@ -233,6 +377,13 @@ def user_defined_settings():
 					self.row_entry.insert(0, str(row_number))
 			except ValueError:
 				self.row_entry.delete(0, tk.END)
+
+		
+		def get_data(self):
+			return {
+				"number_of_rows": int(self.row_entry.get()),
+				"number_of_columns": int(self.column_entry.get())
+			}
 
 
 	class NumberAndCsloCropFrame(tk.Frame):
@@ -326,20 +477,23 @@ def user_defined_settings():
 			okay_button.grid(row=0, column=2, padx=5)
 
 		def preview_layout(self):
-			print("Nope")
+			print("Hello")
+
 		
 		def preview_layout_and_images(self):
 			print("None")
 
+		
 		def on_ok_click(self, event=None):
-			global document_title, subtitle, number_of_rows, number_of_columns
-			
-			document_title = title_frame.title_entry.get()
-			subtitle = title_frame.subtitle_entry.get()
-			number_of_rows = int(row_col_frame.row_entry.get())
-			number_of_columns = int(row_col_frame.column_entry.get())
+			self.settings = {}
 
-			print("This button is currently being worked on")
+			self.settings.update(directory_frame.get_data())
+			self.settings.update(title_frame.get_data())
+			self.settings.update(row_col_frame.get_data())
+			self.settings.update(number_of_mice_frame.get_data())
+
+
+
 			root.destroy()
 
 
@@ -352,31 +506,29 @@ def user_defined_settings():
 
 	directory_frame = DirectoryFrame(root)
 	directory_frame.pack(anchor='w')
-
+	number_of_mice_frame = NumberOfMiceFrame(root)
+	number_of_mice_frame.pack(anchor='w')
 	mouse_info_frame = MouseInfoFrame(root)
 	mouse_info_frame.pack(anchor='w', pady=3)
-
 	title_frame = TitleFrame(root)
 	title_frame.pack(anchor='w', fill='x')
-
 	row_col_frame = RowColumnFrame(root, number_of_mice=10)
 	row_col_frame.pack(anchor='w')
-
 	numbers_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
 	numbers_and_cslo_crop_frame.pack(anchor='w')
-
 	oct_crop_frame = OctCropFrame(root)
 	oct_crop_frame.pack(anchor='w')
-
 	images_to_use_frame = ImagesToUseFrame(root)
 	images_to_use_frame.pack(anchor='w')
-
 	preset_frame = PresetFrame(root)
 	preset_frame.pack(anchor='w')
-
 	confirmation_frame = ConfirmationFrame(root)
 	confirmation_frame.pack(anchor='s', pady=10)
 
 	root.mainloop()
+	return confirmation_frame.settings
 
-user_defined_settings()
+
+settings = user_defined_settings()
+for key, value in settings.items():
+	print(f"{key}: {value}")
