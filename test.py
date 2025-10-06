@@ -1,15 +1,31 @@
 import tkinter as tk
 from tkinter import filedialog
+from tkinter import ttk
 from datetime import datetime
 import math
 import os
+import pandas as pd
+import numpy as np
+import cv2
+import warnings
+warnings.filterwarnings("ignore", message=".*pin_memory.*")
+def get_reader():
+	"""Return a persistent EasyOCR reader, loading it only once."""
+	if not hasattr(get_reader, "reader"):
+		print("Loading EasyOCR")
+		import easyocr
+		get_reader.reader = easyocr.Reader(['en'], verbose=False, gpu=False)
+		print("EasyOCR is loaded")
+	return get_reader.reader
+
+
 
 def user_defined_settings():
 	# Allowed image extensions
 	image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 
-	def on_close_window(event=None):
+	def on_close_window():
 		root.destroy()
 		exit()
 
@@ -81,8 +97,9 @@ def user_defined_settings():
 				row['oct_cb'].grid(row=i, column=4, padx=5, pady=0)
 
 			# Update the number of mice
-			number_of_mice_frame.mouse_set.clear()
+			number_of_mice_frame.mice_set.clear()
 			number_of_mice_frame.figure_out_how_many_mice()
+
 
 
 
@@ -127,7 +144,6 @@ def user_defined_settings():
 						return cslo_or_oct_directory
 
 				# OCT images: Check if the directory contains image files
-
 				# Get all files in directory (ignores subdirectories themselves)
 				files = [f for f in os.listdir(inputted_directory) 
 						if os.path.isfile(os.path.join(inputted_directory, f))]
@@ -143,6 +159,9 @@ def user_defined_settings():
 
 			inputted_directory = entry_widget.get()
 			if os.path.exists(inputted_directory):
+				# Change the text color to black
+				entry_widget.config(fg="black")
+
 				# Determine if the images are cSLO or OCT and update the checkbox accordingly
 				cslo_or_oct_directory = check_directory(inputted_directory)
 				
@@ -157,6 +176,10 @@ def user_defined_settings():
 
 				# Update the number of mice
 				number_of_mice_frame.figure_out_how_many_mice()
+			
+			# If this isn't a directory that exists, change the color to red
+			else:
+				entry_widget.config(fg="red")
 
 		def choose_directory(self, row_index=None, entry_widget=None):
 			directory = filedialog.askdirectory()
@@ -175,15 +198,16 @@ def user_defined_settings():
 			directories = []
 			for row in self.rows:
 				path = row['entry'].get().strip()
-				if path:  # skip blanks
-					if row['cslo_var'].get():
-						image_type = "cslo"
-					elif row['oct_var'].get():
-						image_type = "oct"
-					else:
-						image_type = None
+				if os.path.exists(path):
+					if path:  # skip blanks
+						if row['cslo_var'].get():
+							image_type = "cslo"
+						elif row['oct_var'].get():
+							image_type = "oct"
+						else:
+							image_type = None
 
-					directories.append((path, image_type))
+						directories.append((path, image_type))
 			
 			return {"directories": directories}
 
@@ -199,10 +223,10 @@ def user_defined_settings():
 			mouse_number_label = tk.Label(self, text=number_of_mice)
 			mouse_number_label.grid(row=0, column=1, padx=5)
 
-			determine_button = tk.Button(self, text="Determine", command=self.figure_out_how_many_mice)
-			determine_button.grid(row=0, column=2, padx=5)
+			#determine_button = tk.Button(self, text="Determine", command=self.figure_out_how_many_mice)
+			#determine_button.grid(row=0, column=2, padx=5)
 
-		def figure_out_how_many_mice(self, event=None):
+		def figure_out_how_many_mice(self):
 			directory_info_from_user = directory_frame.get_data().get("directories")
 			
 			for entry in directory_info_from_user:
@@ -240,6 +264,12 @@ def user_defined_settings():
 		def update_mouse_number(self, number_of_mice):
 			mouse_number_label = tk.Label(self, text=number_of_mice)
 			mouse_number_label.grid(row=0, column=1, padx=5)
+			
+			# Update the row x column numbers
+			row_col_frame.update_numbers(number_of_mice)
+
+			# Update the mouse dataframe
+			mouse_info_frame.on_entry_change()
 		
 		def get_data(self):
 			return {
@@ -251,11 +281,17 @@ def user_defined_settings():
 		def __init__(self, parent):
 			super().__init__(parent)
 
+			self.create_blank_df()
+
 			label = tk.Label(self, text="Mouse info:")
 			label.grid(row=0, column=0, padx=5, pady=0)
 
-			self.excel_entry = tk.Entry(self, width=42)
-			self.excel_entry.insert(0, "[Excel file location]")
+			# StringVar linked to Entry
+			self.excel_var = tk.StringVar()			
+			self.excel_var.trace_add("write", self.on_entry_change)
+
+			self.excel_entry = tk.Entry(self, textvariable=self.excel_var, width=42)
+			self.excel_entry.insert(0, "[Mouse info file location]")
 			self.excel_entry.grid(row=0, column=1, padx=5, pady=0)
 
 			choose_button = tk.Button(self, text="Choose", command=self.choose_file)
@@ -264,21 +300,140 @@ def user_defined_settings():
 			edit_button = tk.Button(self, text="Edit info", command=self.edit_mouse_info)
 			edit_button.grid(row=0, column=3, padx=5, pady=0)
 
-			cslo_eartag_button = tk.Button(self, text="Determine cSLO/ear tag number based off of cSLO images",
+			cslo_eartag_button = tk.Button(self, text="Determine ear tag number based off of cSLO images",
 								  command=self.determine_cslo_eartag_number)
 			cslo_eartag_button.grid(row=1, column=0, columnspan=4, padx=5, pady=3)
 
 		def choose_file(self):
-			excel_file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
-			if excel_file_path:
-				self.excel_entry.delete(0, tk.END)
-				self.excel_entry.insert(0, excel_file_path)
-		
+			info_file_path = filedialog.askopenfilename(
+				filetypes=[("Excel files", "*.xlsx *.xls"), ("CSV files", "*.csv")]
+			)
+			if info_file_path:
+				self.excel_var.set(info_file_path)
+			
+		def on_entry_change(self, *args):
+			self.create_blank_df()
+			self.add_mice_from_csv_doc()
+			self.add_mice_from_image_files()
+
+		def create_blank_df(self):
+			self.df = pd.DataFrame(columns=[
+				"cSLO number",
+				"ET number",
+				"Cage number",
+				"Treatment group",
+				"Exclude images"
+			])
+
+		def add_mice_from_csv_doc(self):
+			file_path = self.excel_var.get()
+			if os.path.isfile(file_path):
+				ext = os.path.splitext(file_path)[1]  # get file extension
+
+				new_df = None
+				if ext in [".xlsx", ".xls"]:
+					new_df = pd.read_excel(file_path)
+				elif ext == ".csv":
+					new_df = pd.read_csv(file_path)
+
+				if new_df is not None and not new_df.empty:
+					new_df["Exclude images"] = new_df["Exclude images"].map(lambda x: True if x == "X" else False)
+					self.df = pd.concat([self.df, new_df], ignore_index=True)
+				
+
+		def add_mice_from_image_files(self):
+			# Including mouse numbers found in the files not in the excel spreadsheet
+			for mouse in number_of_mice_frame.mice_set:
+				if mouse not in self.df["cSLO number"].values:
+					# Create a new row with cSLO number set and other columns empty/NaN
+					new_row = {
+						"cSLO number": mouse,
+						"ET number": "",
+						"Cage number": "",
+						"Treatment group": "",
+						"Exclude images": False
+					}
+					self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
+
+
 		def edit_mouse_info(self):
-			print("Button has no function yet")
-		
+			top = tk.Toplevel(root)
+			top.title("Edit DataFrame")
+
+			entries = {}  # store references to Entry widgets or BooleanVars for checkboxes
+
+			# Column headers
+			for j, col in enumerate(self.df.columns):
+				label = tk.Label(top, text=col, font=("Arial", 10, "bold"))
+				label.grid(row=0, column=j, padx=2, pady=5)
+
+			# Data rows
+			for i, row in self.df.iterrows():
+				for j, col in enumerate(self.df.columns):
+					if col == "Exclude images":
+						# Use a checkbox for boolean values
+						var = tk.BooleanVar(value=row[col])
+						cb = tk.Checkbutton(top, variable=var)
+						cb.grid(row=i+1, column=j, padx=0, pady=0)
+						entries[(i, col)] = var  # store the BooleanVar
+					else:
+						# Text entry, centered
+						e = tk.Entry(top, justify="center")
+						e.grid(row=i+1, column=j, padx=2, pady=0)
+						e.insert(0, row[col])
+						entries[(i, col)] = e
+
+			def save_changes():
+				for (i, col), widget in entries.items():
+					if col == "Exclude images":
+						# Get the value of the checkbox
+						self.df.at[i, col] = widget.get()
+					else:
+						self.df.at[i, col] = widget.get()
+				top.destroy()
+
+			save_button = tk.Button(top, text="Save", command=save_changes)
+			save_button.grid(row=len(self.df)+1, column=0, columnspan=len(self.df.columns), pady=10)
+			
 		def determine_cslo_eartag_number(self):
-			print("This button doesn't do anything right now")
+			# Get a list of directories that have cSLO images
+			data_dic = directory_frame.get_data()
+			available_directories = data_dic["directories"]	# Will be a list of tuples: (directory, "cslo"/"oct")
+			cslo_directories = []
+			for directory, image_type in available_directories:
+				if image_type == "cslo":
+					cslo_directories.append(directory)
+			
+			if len(cslo_directories) == 0:
+				print("No cSLO directories found")
+				return
+			
+			# Going through the cSLO image directories and grabbing the information from the images and putting it in the df
+			for directory in cslo_directories:
+				self.cslo_ear_tag_dic = determine_ear_tag_number_in_cslo_images(directory)
+				for cslo_num, et_value in self.cslo_ear_tag_dic.items():
+					# check if the cSLO number exists in the df
+					if cslo_num in self.df["cSLO number"].values:
+						# update the ET number
+						self.df.loc[self.df["cSLO number"] == cslo_num, "ET number"] = et_value
+					else:
+						# add a new row
+						new_row = {"cSLO number": cslo_num, "ET number": et_value}
+						self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
+			
+			self.edit_mouse_info()
+
+
+		def get_data(self):
+			# Create dictionary with cSLO numbers (key) and [Ear tag number, cage, group]
+
+			# Remove any mice that were marked to be excluded
+
+			# Remove any mice that don't have a corresponding image
+
+			# Return the dictionary
+			return "Still a work in progress"
+
 
 
 	class TitleFrame(tk.Frame):
@@ -312,11 +467,13 @@ def user_defined_settings():
 
 
 	class RowColumnFrame(tk.Frame):
-		def __init__(self, parent, number_of_mice):
+		def __init__(self, parent):
 			super().__init__(parent)
 
+			self.number_of_mice = 0
+
 			# Calculate initial row/col numbers
-			number_of_rows, number_of_columns = self.determine_row_and_column_number(number_of_mice)
+			number_of_rows, number_of_columns = self.determine_row_and_column_number(self.number_of_mice)
 
 			# Label
 			label = tk.Label(self, text="Row x column:")
@@ -337,25 +494,34 @@ def user_defined_settings():
 			self.column_entry.grid(row=0, column=3, padx=5, pady=5)
 
 			# Bind updates
-			self.number_of_mice = number_of_mice
 			self.row_entry.bind("<KeyRelease>", self.update_columns)
 			self.column_entry.bind("<KeyRelease>", self.update_rows)
 
+		# Triggered when other things happen in the dialog box
+		def update_numbers(self, new_total_number):
+			self.number_of_mice = new_total_number
+			number_of_rows, number_of_columns = self.determine_row_and_column_number(self.number_of_mice)
+			self.row_entry.delete(0, tk.END)
+			self.row_entry.insert(0, str(number_of_rows))
+			self.column_entry.delete(0, tk.END)
+			self.column_entry.insert(0, str(number_of_columns))
+
 		@staticmethod
-		def determine_row_and_column_number(number_of_mice):
-			square_root = math.sqrt(number_of_mice)
+		def determine_row_and_column_number(total_number):
+			square_root = math.sqrt(total_number)
 			number_of_rows = math.floor(square_root)
 			number_of_columns = math.ceil(square_root)
 			if number_of_rows == number_of_columns:
 				number_of_rows -= 1
 				number_of_columns += 1
-			while number_of_rows * number_of_columns < number_of_mice:
+			while number_of_rows * number_of_columns < total_number:
 				number_of_rows += 1
 			if number_of_rows == number_of_columns:
 				number_of_rows -= 1
 				number_of_columns += 1
 			return number_of_rows, number_of_columns
 
+		# Triggered when row number is changed
 		def update_columns(self, *_):
 			try:
 				row_number = self.row_entry.get()
@@ -367,6 +533,7 @@ def user_defined_settings():
 			except ValueError:
 				self.column_entry.delete(0, tk.END)
 
+		# Triggered when column number is changed
 		def update_rows(self, *_):
 			try:
 				column_number = self.column_entry.get()
@@ -484,7 +651,7 @@ def user_defined_settings():
 			print("None")
 
 		
-		def on_ok_click(self, event=None):
+		def on_ok_click(self):
 			self.settings = {}
 
 			self.settings.update(directory_frame.get_data())
@@ -512,7 +679,7 @@ def user_defined_settings():
 	mouse_info_frame.pack(anchor='w', pady=3)
 	title_frame = TitleFrame(root)
 	title_frame.pack(anchor='w', fill='x')
-	row_col_frame = RowColumnFrame(root, number_of_mice=10)
+	row_col_frame = RowColumnFrame(root)
 	row_col_frame.pack(anchor='w')
 	numbers_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
 	numbers_and_cslo_crop_frame.pack(anchor='w')
@@ -529,6 +696,68 @@ def user_defined_settings():
 	return confirmation_frame.settings
 
 
+
+
+def determine_ear_tag_number_in_cslo_images(base_directory):
+	reader = get_reader()
+	cslo_ear_tag_dic = {}
+
+	# loop through all subfolders
+	for folder in os.listdir(base_directory):
+		folder_path = os.path.join(base_directory, folder)
+		if not os.path.isdir(folder_path):
+			continue  # skip non-folders
+
+		# prefer "OD", fallback to "OS"
+		target_dir = os.path.join(folder_path, "OD")
+		if not os.path.exists(target_dir):
+			target_dir = os.path.join(folder_path, "OS")
+		if not os.path.exists(target_dir):
+			continue # skip if it doesn't have the OD or OS subfolders
+
+		# find first image file in target_dir
+		files = [f for f in os.listdir(target_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif'))]
+		if not files:
+			continue	# skip if no images
+
+		first_image_path = os.path.join(target_dir, files[0])
+		img = cv2.imread(first_image_path)
+
+		if img is None:
+			continue	# skip if can't read image
+
+		height, width, _ = img.shape
+
+		# crop bottom-left region
+		top_square_height = width
+		bottom_rect_height = height - top_square_height
+		crop_height = (bottom_rect_height // 3) + 10
+		crop_width = int(width * 0.70)  # left 70% of image
+
+		# slice: rows (y), columns (x)
+		cropped = img[top_square_height : top_square_height + crop_height, 0:crop_width]
+
+		# OCR
+		results = reader.readtext(cropped)
+		mouse_id = [res[1] for res in results]  # res[1] contains detected text
+		mouse_id_string = " ".join(mouse_id)
+		if folder in mouse_id_string:
+			ear_tag_number = mouse_id_string.split(folder, 1)[1]
+		else:
+			ear_tag_number = mouse_id_string
+			print(f"Folder ({folder}) not found in {mouse_id_string}")	
+		#ear_tag_number = mouse_id_string.split(folder, 1)[1] if folder in mouse_id_string else mouse_id_string
+		ear_tag_number = ear_tag_number.replace("_", " ").replace(",", " "). replace(".", " ")
+		ear_tag_number = " ".join(ear_tag_number.split()).strip()
+
+		cslo_ear_tag_dic[folder] = ear_tag_number
+	
+	return(cslo_ear_tag_dic)
+
+
+
 settings = user_defined_settings()
 for key, value in settings.items():
 	print(f"{key}: {value}")
+
+
