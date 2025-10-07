@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import numpy as np
 import cv2
+from PIL import Image
 import warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
 def get_reader():
@@ -420,19 +421,27 @@ def user_defined_settings():
 						# add a new row
 						new_row = {"cSLO number": cslo_num, "ET number": et_value}
 						self.df = pd.concat([self.df, pd.DataFrame([new_row])], ignore_index=True)
-			
 			self.edit_mouse_info()
 
 
 		def get_data(self):
-			# Create dictionary with cSLO numbers (key) and [Ear tag number, cage, group]
+			self.df_to_export = self.df
+			
+			# Remove any mice that there aren't any image files of
+			self.df_to_export = self.df_to_export[self.df_to_export["cSLO number"].isin(number_of_mice_frame.mice_set)]
 
 			# Remove any mice that were marked to be excluded
+			self.df_to_export = self.df_to_export[self.df_to_export["Exclude images"] != True]
 
-			# Remove any mice that don't have a corresponding image
+			# Create dictionary with cSLO numbers (key) and [Ear tag number, cage, group]
+			mouse_info_dic = {
+				row["cSLO number"]: (row["ET number"], row["Cage number"], row["Treatment group"])
+				for _, row in self.df_to_export.iterrows()
+			}
 
-			# Return the dictionary
-			return "Still a work in progress"
+			return {
+				"mouse_info_dic": mouse_info_dic
+			}
 
 
 
@@ -577,6 +586,17 @@ def user_defined_settings():
 											variable=self.crop_cslo_text_var)
 			crop_cslo_text_cb.grid(row=1, column=0, columnspan=3, padx=5, pady=0, sticky="w")
 
+		def get_data(self):
+			self.cslo_number_bool = self.cslo_number_var.get()
+			self.eartag_number_bool = self.eartag_number_var.get()
+			self.crop_cslo_text_bool = self.crop_cslo_text_var.get()
+
+			return {
+				"cslo_number_bool": self.cslo_number_bool,
+				"eartag_number_bool": self.eartag_number_bool,
+				"crop_cslo_text_bool": self.crop_cslo_text_bool
+			}
+
 	
 	class OctCropFrame(tk.Frame):
 		def __init__(self, parent):
@@ -586,11 +606,10 @@ def user_defined_settings():
 			self.oct_crop_var = tk.BooleanVar(value=False)
 			oct_crop_cb = tk.Checkbutton(self, text="Crop OCT images",
 										variable=self.oct_crop_var,
-										command=self.oct_crop_checkbox_unselected)
+										command=self.oct_crop_checkbox)
 			oct_crop_cb.grid(row=2, column=0, padx=5, pady=0, sticky="w")
 
 			self.oct_crop_entry = tk.Entry(self, width=5, state="disabled")
-			self.oct_crop_entry.insert(0, "480")
 			self.oct_crop_entry.grid(row=2, column=1, padx=0, pady=0)
 
 			pixel_label = tk.Label(self, text="pixels")
@@ -602,11 +621,37 @@ def user_defined_settings():
 		def find_minimum_oct_height(self):
 			print("Button currently not functional")
 
-		def oct_crop_checkbox_unselected(self):
+		def oct_crop_checkbox(self):
 			if self.oct_crop_var.get():
 				self.oct_crop_entry.config(state="normal")
 				self.oct_crop_entry.delete(0, tk.END)
-				self.oct_crop_entry.insert(0, "480")
+				
+				# -- Figure out the height of OCT images, if any --
+				# Find OCT directories
+				directories_info = directory_frame.get_data()
+				directories = directories_info["directories"]
+				oct_directory_present = False
+				for directory in directories:
+					if directory[1] == "oct":
+						oct_directory_present = True
+						oct_directory = directory[0]
+						continue
+				if oct_directory_present:
+					# list all files
+					files = sorted(os.listdir(oct_directory))
+					image_height = 0
+					# find the first file that looks like an image
+					for f in files:
+						if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff', '.bmp')):
+							image_path = os.path.join(oct_directory, f)
+							with Image.open(image_path) as img:
+								_, image_height = img.size
+					if image_height > 0:
+						self.oct_crop_entry.insert(0, image_height)
+					else:
+						self.oct_crop_entry.insert(0, "480")
+				else:
+					self.oct_crop_entry.insert(0, "480")
 			else:
 				self.oct_crop_entry.config(state="disabled")
 	
@@ -648,7 +693,8 @@ def user_defined_settings():
 
 		
 		def preview_layout_and_images(self):
-			print("None")
+			self.test_settings = row_col_frame.get_data()
+			
 
 		
 		def on_ok_click(self):
@@ -657,7 +703,8 @@ def user_defined_settings():
 			self.settings.update(directory_frame.get_data())
 			self.settings.update(title_frame.get_data())
 			self.settings.update(row_col_frame.get_data())
-			self.settings.update(number_of_mice_frame.get_data())
+			self.settings.update(mouse_info_frame.get_data())
+			self.settings.update(number_and_cslo_crop_frame.get_data())
 
 
 
@@ -681,8 +728,8 @@ def user_defined_settings():
 	title_frame.pack(anchor='w', fill='x')
 	row_col_frame = RowColumnFrame(root)
 	row_col_frame.pack(anchor='w')
-	numbers_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
-	numbers_and_cslo_crop_frame.pack(anchor='w')
+	number_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
+	number_and_cslo_crop_frame.pack(anchor='w')
 	oct_crop_frame = OctCropFrame(root)
 	oct_crop_frame.pack(anchor='w')
 	images_to_use_frame = ImagesToUseFrame(root)
