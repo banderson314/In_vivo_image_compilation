@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 import os
 from dataclasses import dataclass
+import tkinter as tk
 import pandas as pd
 import numpy as np
 import re
@@ -32,8 +33,8 @@ def user_defined_settings():
 		 'crop_cslo_text_bool': True,
 		 'oct_height': '350',
 		 'images_to_use': [
-			 ('cSLO BAF [select]', 'BAF'),
-			 ('cSLO IRAF (1st)', 'IRAF'),
+			 ('cSLO BAF (1st)', 'BAF'),
+			 ('cSLO IRAF [select]', 'IRAF'),
 			 ('OCT horizontal', 'Horizontal'),
 			 ('OCT vertical', 'Vertical')]
 		}
@@ -244,108 +245,100 @@ class ImageCompilation:
 
 			return cropped_image
 
+		def user_choose_which_images_to_use(image_path_list, title):
+			def image_click(image_path):
+				root.destroy()
+				root.selected_image = image_path
 
-		def determine_which_cslo_image_to_use(self):
-			for mouse, eyes in self.mouse_image_list.items():
-				for eye, camera_type in eyes.items():
-					cslo_paths = camera_type["cslo"]
-					if not cslo_paths:
-						continue
+			def select_none(event=None):
+				root.destroy()
+				root.selected_image = None
 
-					# Group paths by modality
-					paths_for_specific_modality = {}
-					for path in cslo_paths:
-						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(path)
-						paths_for_specific_modality.setdefault(modality, []).append(path)
+			def on_close_window(event=None):
+				root.destroy()
+				root.selected_image = None
 
-					# Process each modality group
-					for modality, paths in paths_for_specific_modality.items():
-						if len(paths) == 1:
-							# Only one candidate, nothing to resolve
-							continue
-
-						# Lookup the rule object
-						img_rule = self.image_type_lookup.get(("cslo", modality))
-						if not img_rule:
-							continue  # Not in the list of tracked cslo types - this shouldn't happen
-
-						# --- User selection case ---
-						if img_rule.select_required:
-							selected_path = self.user_choose_which_images_to_use(paths)
-							self.mouse_image_list[mouse][eye]["cslo"] = [selected_path]
-							continue
-
-						# --- Automatic selection case ---
-						if img_rule.multiple_index is not None:
-							# Extract numeric indices and sort once
-							numbered_paths = []
-							for path in paths:
-								_, image_number, _, _, _ = self.convert_path_to_base_name_and_parts(path, "cslo")
-								numbered_paths.append((int(image_number), path))
-
-							numbered_paths.sort(key=lambda x: x[0])
-							sorted_paths = [p for _, p in numbered_paths]
-
-							index = img_rule.multiple_index
-							if 0 <= index < len(sorted_paths):
-								self.mouse_image_list[mouse][eye]["cslo"] = [sorted_paths[index]]
+			def center_dialog_box(window):
+				window.update_idletasks()
+				width = window.winfo_width()
+				height = window.winfo_height()
+				screen_width = window.winfo_screenwidth()
+				screen_height = window.winfo_screenheight()
+				x_coordinate = (screen_width - width) // 2
+				y_coordinate = (screen_height - height) // 2
+				window.geometry(f"{width}x{height}+{x_coordinate}+{y_coordinate}")
 
 
-		def old_determine_which_cslo_image_to_use():
-			for mouse, eyes in self.mouse_image_list.items():
-				for eye, camera_type in eyes.items():
-					cslo_image_paths = camera_type["cslo"]
+			# Root window
+			if tk._default_root is None:
+				root = tk.Tk()
+			else:
+				root = tk.Toplevel()
+			root.title(title)
+			root.protocol("WM_DELETE_WINDOW", on_close_window)
+			root.config(bg="black")
 
-					# Build a dict grouping paths by modality
-					paths_for_specific_modality = {}
-					for path in cslo_image_paths:
-						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(path)
-						paths_for_specific_modality.setdefault(modality, []).append(path)
+			# Keep references to images
+			resized_images = []
 
-					# Now check for duplicates and act accordingly
-					for modality, paths in paths_for_specific_modality.items():
-						if len(paths) > 1:	# If there are multiple images with the same modality
-							# User manually selects images, as needed
-							if modality in self.image_types_that_user_needs_to_select:
-								# User must choose which image to use
-								selected_path = self.user_choose_which_images_to_use(paths)
-								self.mouse_image_list[mouse][eye]["cslo"] = [selected_path]
-							
-							# Images are automatically selected, as needed
-							for mod, index_to_use in self.image_types_to_use_if_multiple_exist:
-								if modality == mod:
-									# Get a list of tuples: (image_number, path)
-									numbered_paths = []
-									for path in paths:
-										_, image_number, _, _, _ = self.convert_path_to_base_name_and_parts(path, "cslo")
-										numbered_paths.append((int(image_number), path))  # convert to int for proper sorting
+			# Determine a uniform size based on first image
+			sample_image = Image.open(image_path_list[0])
+			uniform_width = int(sample_image.width * 0.5)
+			uniform_height = int(sample_image.height * 0.5)
+			
+			# Determining the size and grid layout of the images
+			usable_screen_width = int(root.winfo_screenwidth()*0.95)
+			usable_screen_height = int(root.winfo_screenheight()*0.95)
+			max_col_count = usable_screen_width // uniform_width
+			max_row_count = usable_screen_height // uniform_height
+			squares_needed = len(image_path_list)+1
+			while squares_needed > (max_col_count * max_row_count):
+				uniform_width = int(uniform_width * 0.95)
+				uniform_height = int(uniform_height * 0.95)
+				max_col_count = int(usable_screen_width // uniform_width)
+				max_row_count = usable_screen_height // uniform_height
+			
 
-									# Sort by image number
-									numbered_paths.sort(key=lambda x: x[0])
+			# Load and display images
+			row, col = 0, 0
+			for path in image_path_list:
+				original_image = Image.open(path)
+				resized_image = original_image.resize((uniform_width, uniform_height))
+				photo = ImageTk.PhotoImage(resized_image)
+				resized_images.append(photo)
+				label = tk.Label(root, image=photo)
+				label.image = photo
+				label.grid(row=row, column=col, padx=0, pady=0)
+				label.bind("<Button-1>", lambda event, image_path=path: image_click(image_path))
+				col += 1
+				if col == max_col_count:
+					row += 1
+					col = 0
 
-									# Extract the sorted paths
-									sorted_paths = [p for _, p in numbered_paths]
+			# Add the "Select none" box
+			none_canvas = tk.Canvas(root, width=uniform_width, height=uniform_height, bg="black")
+			none_canvas.create_text(
+				uniform_width // 2,
+				uniform_height // 2,
+				text="Select none",
+				fill="white",
+				font=("Arial", 14)
+			)
+			none_canvas.grid(row=row, column=col, padx=0, pady=0)
+			none_canvas.bind("<Button-1>", select_none)
 
-									# Automatically select the path at index_to_use
-									if 0 <= index_to_use < len(sorted_paths):
-										selected_path = sorted_paths[index_to_use]
-										self.mouse_image_list[mouse][eye]["cslo"] = [selected_path]
 
-									break
+			# Bind Escape key
+			root.bind("<Escape>", on_close_window)
 
+			# Center the window
+			root.after(10, lambda: center_dialog_box(root))
 
-		def user_choose_which_images_to_use(image_paths):
-			"""Stub to allow user selection of images for a mouse"""
-			image_path = image_paths[0]
-			return image_path
+			# Start main loop
+			root.mainloop()
 
-		
-		def create_canvas_for_one_mouse():
-			for image_type in self.settings["images_to_use"]:
-				continue
-			canvas = "work on this"
+			return root.selected_image if hasattr(root, 'selected_image') else None
 
-			return canvas
 
 
 		for eye, cslo_or_oct in self.mouse_image_list[mouse_id].items():
@@ -355,25 +348,50 @@ class ImageCompilation:
 				if image_modality.imager not in cslo_or_oct:		# Imager being either "cslo" or "oct"
 					continue  # Skip imagers not present for this eye
 
-				all_image_paths = cslo_or_oct[image_modality.imager]	# All paths for that imager and eye
-				print(all_image_paths)
-				exit()
-				if not all_image_paths:
+				available_image_paths = cslo_or_oct[image_modality.imager]	# All paths for that imager and eye
+				
+				if not available_image_paths:
 					continue
 
+				# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
 				only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
 				if only_one_image_exists:
-					for image_path in all_image_paths:
+					for image_path in available_image_paths:
 						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
 						if modality == image_modality.image_type_name:
 							image_path_to_use = image_path
 							break
 
-				elif image_modality.select_required:
-					print("User needs to select image manually")
-				
-				elif image_modality.multiple_index is not None:
-					print("Image will be selected based off of index")
+				else:
+					# Create a list of all paths with the modality of interest
+					image_paths_with_same_modality = []
+					for image_path in available_image_paths:
+						_, image_number, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
+						if modality == image_modality.image_type_name:
+							image_paths_with_same_modality.append((int(image_number), image_path))
+					image_paths_with_same_modality.sort(key=lambda x: x[0])	# Sorting the list by image_number
+					image_paths_with_same_modality = [x[1] for x in image_paths_with_same_modality]	# Making the list just image_path
+
+
+					# If we just need to grab the nth image with that modality
+					if image_modality.multiple_index is not None:
+						index_to_use = image_modality.multiple_index
+					
+						# Grab the image with the correct index, unless it can't, then don't use any image
+						try:
+							image_path_to_use = image_paths_with_same_modality[index_to_use]
+						except IndexError:
+							image_path_to_use = None
+
+					# If the user needs to select the image
+					elif image_modality.select_required:
+						if image_paths_with_same_modality:
+							dialog_title = (f"{mouse_id} {eye} - {image_modality.image_type_name}")
+							image_path_to_use = user_choose_which_images_to_use(image_paths_with_same_modality, dialog_title)
+						else:
+							image_path_to_use = None
+					
+
 		
 		
 		exit()
