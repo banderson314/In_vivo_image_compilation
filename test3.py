@@ -13,6 +13,7 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 def user_defined_settings():
 	"""Dialog box where user defines settings and returns them as a dictionary"""
+	# C:/Users/nodna/Desktop/cSLO image compilation images/Less images
 	settings = {
 		'directories': [
 			('C:/Users/bran314/Desktop/cSLO image compilation images/Less images/cSLO', 'cslo'),
@@ -347,14 +348,16 @@ class ImageCompilation:
 			return canvas
 
 
-		for eye, modalities in self.mouse_image_list[mouse_id].items():
+		for eye, cslo_or_oct in self.mouse_image_list[mouse_id].items():
 			for image_modality in self.image_type_objects:	# Loops through the images the user selected they wanted (i.e. BAF, IRAF, horizontal, etc.)
 				image_path_to_use = None
 				
-				if image_modality.imager not in modalities:		# Imager being either "cslo" or "oct"
+				if image_modality.imager not in cslo_or_oct:		# Imager being either "cslo" or "oct"
 					continue  # Skip imagers not present for this eye
 
-				all_image_paths = modalities[image_modality.imager]	# All paths for that imager and eye
+				all_image_paths = cslo_or_oct[image_modality.imager]	# All paths for that imager and eye
+				print(all_image_paths)
+				exit()
 				if not all_image_paths:
 					continue
 
