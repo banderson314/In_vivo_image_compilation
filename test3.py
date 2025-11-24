@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw, ImageFont, ImageTk, UnidentifiedImageError
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Optional, Tuple, Literal, ClassVar
 import tkinter as tk
 import pandas as pd
 import numpy as np
@@ -18,12 +19,12 @@ def user_defined_settings():
 		'directories': [
 			('C:/Users/bran314/Desktop/cSLO image compilation images/Less images/cSLO', 'cslo'),
 			('C:/Users/bran314/Desktop/cSLO image compilation images/Less images/OCT', 'oct')],
-			('C:/Users/nodna/Desktop/cSLO image compilation images/Less images/cSLO', 'cslo'),
-			('C:/Users/nodna/Desktop/cSLO image compilation images/Less images/OCT', 'oct')],
+			#('C:/Users/nodna/Desktop/cSLO image compilation images/Less images/cSLO', 'cslo'),
+			#('C:/Users/nodna/Desktop/cSLO image compilation images/Less images/OCT', 'oct')],
 		 'document_title': 'In vivo imaging',
 		 'subtitle': 'October 23, 2025',
-		 'number_of_rows': 1,
-		 'number_of_columns': 4,
+		 'number_of_rows': 2,
+		 'number_of_columns': 3,
 		 'mouse_info_dic': {
 			 '1995': ('C809 BEH', '', ''),
 			 '1994': ('C809 BEN', '', ''),
@@ -33,10 +34,10 @@ def user_defined_settings():
 		 'labID_bool': True,
 		 'crop_cslo_text_bool': True,
 		 'oct_crop_bool': True,
-		 'oct_height': '48',
+		 'oct_height': '480',
 		 'images_to_use': [
 			 ('cSLO BAF (1st)', 'BAF'),
-			 ('cSLO IRAF [select]', 'IRAF'),
+			 ('cSLO IRAF (2nd)', 'IRAF'),
 			 ('OCT horizontal', 'Horizontal'),
 			 ('OCT vertical', 'Vertical')]
 		}
@@ -132,15 +133,19 @@ class ImageCompilation:
 				if self.settings['oct_crop_bool']:	# If the user has specified a specific height should be used
 					self.oct_height = int(self.settings['oct_height'])
 
+
 				
 				# Resizing if needed
 				if self.oct_width != self.cslo_width:
 					new_width = self.cslo_width
 					w, h = self.example_oct_image.size
+					if self.settings['oct_crop_bool']:
+						h = int(self.settings['oct_height'])
 					aspect_ratio = h / w
 					new_height = int(new_width * aspect_ratio)
 					self.example_oct_image = self.example_oct_image.resize((new_width, new_height), Image.LANCZOS)
 					self.oct_width, self.oct_height = new_width, new_height
+
 
 			# Stop looping once both found
 			if hasattr(self, "example_cslo_image") and hasattr(self, "example_oct_image"):
@@ -226,7 +231,8 @@ class ImageCompilation:
 			'column_margin_size': 45,
 			'row_margin_size': 400,
 			'title_font': ImageFont.load_default(size=160),
-			'subtitle_font': ImageFont.load_default(size=90)
+			'subtitle_font': ImageFont.load_default(size=90),
+			'outer_margin_size': 30
 		}
 
 		self.settings.update(additional_settings)
@@ -328,8 +334,6 @@ class ImageCompilation:
 	# ====================================================
 	def assemble_mouse_image_grid(self, mouse_id):
 		"""Creates image compilation and metadata for one mouse"""
-		
-
 		def crop_cslo_image(image):
 			# Crops the text off of the bottom of the image
 			width, height = image.size
@@ -482,7 +486,6 @@ class ImageCompilation:
 					oct_count += 1
 			
 			canvas_width = self.cslo_width * 2	# 2x because OD and OS; oct images will be adjusted to match cslo images
-			print(self.oct_height)
 			canvas_height = (self.cslo_height * cslo_count) + (self.oct_height * oct_count)
 			canvas = Image.new("RGB", (canvas_width, canvas_height), color="black")
 
@@ -491,7 +494,9 @@ class ImageCompilation:
 
 		# -- Main body of this function --
 		# Will take one mouse number (mouse_id) and loop through all images generate a canvas with all images compiled together
-		
+		if mouse_id == "return_canvas_only":
+			return create_single_mouse_canvas()
+
 		individual_mouse_canvas = create_single_mouse_canvas()
 		x_offset_od = 0
 		x_offset_os = self.cslo_width
@@ -590,21 +595,179 @@ class ImageCompilation:
 	# ====================================================
 	# CANVAS AND LAYOUT
 	# ====================================================
-	def create_compilation_canvas(self, example_mouse_compilation):
+	def create_master_canvas(self, example_mouse_canvas):
 		"""Create the master canvas based on one example mouse."""
-		self.canvas = None  # Replace with Image.new('RGB', size, color)
-		return self.canvas
 
-	def compute_layout_map(self):
-		"""Compute coordinates for image placement."""
-		self.layout_map = {}  # e.g., {mouse_id: (x, y), ...}
-		return self.layout_map
+		# Unpacking self.settings to make easier to read
+		
+		column_margin_size = int(self.settings['column_margin_size'])	# int
+		row_margin_size = int(self.settings['row_margin_size'])			# int
+		title_font = self.settings['title_font']						# ImageFont.load_default(size=x)
+		subtitle_font = self.settings['subtitle_font']					# ImageFont.load_default(size=x)
+		outer_margin_size = int(self.settings['outer_margin_size'])		# int
+		number_of_rows = int(self.settings['number_of_rows'])			# int
+		number_of_columns = int(self.settings['number_of_columns'])		# int
+		document_title = self.settings['document_title']				# string
+		subtitle = self.settings['subtitle']							# string
+		
+		# Unpacking some self.settings to make easier to read
+		outer_margin_size = int(self.settings['outer_margin_size'])
+		background_color = self.settings['background_color'] 			# (x, x, x)
+		text_color = self.settings['text_color']						# (x, x, x)
+
+
+		# -- Defining additional variables --
+		padding = 20
+		
+		@dataclass
+		class LayoutElement:
+			kind: Literal["text", "image"]
+			position: Tuple[int, int]
+			width: int
+			height: int
+			text: Optional[str] = None
+			font: Optional[ImageFont.FreeTypeFont] = None
+			image: Optional[Image.Image] = None
+
+			@property
+			def right(self): return self.position[0] + self.width
+			@property
+			def bottom(self): return self.position[1] + self.height
+			@property
+			def left(self): return self.position[0]
+			@property
+			def top(self): return self.position[1]
+			@property
+			def center_x(self): return self.left + self.width // 2
+			@property
+			def center_y(self): return self.top + self.height // 2
+
+			@classmethod
+			def from_text(cls, text: str, font: ImageFont.FreeTypeFont, position: Tuple[int, int]):
+				draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+				bbox = draw.textbbox((0, 0), text, font=font)
+				width = bbox[2] - bbox[0]
+				height = bbox[3] - bbox[1]
+				y_offset = -bbox[1]
+				
+				return cls(
+					kind="text",
+					text=text,
+					font=font,
+					#position=(position[0], position[1] + y_offset),
+					position=position,
+					width=width,
+					height=height
+				)
+
+			@classmethod
+			def from_image(cls, image: Image.Image, position: Tuple[int, int]):
+				return cls(
+					kind="image",
+			   		image=image,
+					position=position,
+					width=image.width,
+					height=image.height
+				)
+
+			# Draw itself on a canvas
+			def draw_on_canvas(self, canvas: Image.Image):
+				draw_obj = ImageDraw.Draw(canvas)
+				if self.kind == "text":
+					bbox = self.font.getbbox(self.text) 
+					draw_obj.text(
+						(self.position[0], self.position[1] - bbox[1]),
+						self.text,
+						font=self.font,
+						fill=text_color
+					)
+
+				elif self.kind == "image":
+					canvas.paste(self.image, self.position)
+
+
+		# Creating elements
+		title_element = LayoutElement.from_text(
+			self.settings['document_title'], 
+			self.settings['title_font'], 
+			(outer_margin_size, outer_margin_size)
+			)
+		subtitle_element = LayoutElement.from_text(
+			self.settings['subtitle'],
+			self.settings['subtitle_font'],
+			(outer_margin_size, title_element.bottom + padding)
+		)
+
+		
+		self.master_canvas_elements = [
+			title_element, 
+			subtitle_element
+		]
+
+		# Determining location and pasting mouse images onto master canvas
+		row_count = 0
+		column_count = 0
+		x_offset = outer_margin_size
+		y_offset = subtitle_element.bottom + padding
+		for mouse, mouse_info in self.settings['mouse_info_dic'].items():
+			# Inserting image type titles
+			if column_count == 0:
+				for image_type in self.image_type_objects:
+					text = image_type.custom_name	
+			
+			# Creating individual mouse compilation
+			mouse_canvas = self.assemble_mouse_image_grid(mouse)
+			
+			mouse_element = LayoutElement.from_image(
+				mouse_canvas,
+				(x_offset, y_offset)
+			)
+			self.master_canvas_elements.append(mouse_element)
+			
+			# Determining the next column/row to use
+			column_count += 1
+			if column_count == number_of_columns:
+				x_offset = outer_margin_size
+				y_offset = mouse_element.bottom + padding
+				row_count += 1
+				column_count = 0
+			else:
+				x_offset = mouse_element.right + padding
+
+
+
+
+
+
+		# Finding the bottom right most pixel
+		bottom_most_pixel = outer_margin_size
+		right_most_pixel = outer_margin_size
+		for element in self.master_canvas_elements:
+
+			if element.right > right_most_pixel:
+				right_most_pixel = element.right
+			if element.bottom > bottom_most_pixel:
+				bottom_most_pixel = element.bottom
+			
+
+		# Creating the master canvas
+		master_width = right_most_pixel + outer_margin_size
+		master_height = bottom_most_pixel + outer_margin_size
+		self.master_canvas = Image.new('RGB', (master_width, master_height), background_color)
+		
+
+		# Pasting the elements onto the canvas
+		for element in self.master_canvas_elements:
+			element.draw_on_canvas(self.master_canvas)
+
+
+
 
 	# ====================================================
 	# PASTING & LABELS
 	# ====================================================
 	def paste_images_into_compilation_document(self, mouse_id, mouse_images):
-		"""Paste a mouse’s images onto the master canvas."""
+		"""Paste a mouse's images onto the master canvas."""
 		pass
 
 	def insert_labels(self):
@@ -650,7 +813,7 @@ class ImageCompilation:
 		example_comp, example_meta = self.assemble_mouse_image_grid(self.example_mouse_number)
 
 		# 4. Canvas and layout
-		self.create_compilation_canvas(example_comp)
+		self.create_master_canvas(example_comp)
 		self.compute_layout_map()
 
 		# 5. Compile images
@@ -663,15 +826,21 @@ class ImageCompilation:
 		self.save_and_display_compilation_document()
 
 	def test_functionality(self):
+		# 1. Add derived settings
 		self.add_non_user_defined_settings()
+
+		# 2. Build image list
 		self.build_mouse_image_list()
 
-
-		# Example mouse setup
-		self.example_mouse_number = list(self.mouse_image_list.keys())[0]
-		example_mouse_canvas = self.assemble_mouse_image_grid(self.example_mouse_number)
-		example_mouse_canvas.show()
-
+		# 3. Determine size of individual mouse canvas
+		#self.example_mouse_number = list(self.mouse_image_list.keys())[0]
+		#example_mouse_canvas = self.assemble_mouse_image_grid(self.example_mouse_number)
+		example_mouse_canvas = self.assemble_mouse_image_grid("return_canvas_only")
+		
+		
+		#. Create master canvas and layout
+		self.create_master_canvas(example_mouse_canvas)
+		self.master_canvas.show()
 
 		return
 

@@ -1,73 +1,146 @@
-import os
-print("Loading EasyOCR")
-import easyocr
-print("EasyOCR loaded")
-import cv2
-import matplotlib.pyplot as plt
+import tkinter as tk
 
-def determine_ear_tag_number_in_cslo_images(base_directory):
-	reader = easyocr.Reader(['en'], verbose=False)  # load English OCR
-	show = False
+class DraggableDropdownApp(tk.Tk):
+	def __init__(self):
+		super().__init__()
+		self.title("Dynamic Dropdown Selector")
+		self.available_types = [
+			"cSLO BAF",
+			"cSLO IRAF",
+			"OCT Superior",
+			"OCT Vertical",
+			"OCT Horizontal"
+		]
 
-	# loop through all subfolders
-	for folder in os.listdir(base_directory):
-		folder_path = os.path.join(base_directory, folder)
-		if not os.path.isdir(folder_path):
-			continue  # skip non-folders
+		self.menu_frame = tk.Frame(self)
+		self.menu_frame.pack(fill="both", expand=True, pady=10)
 
-		# prefer "OD", fallback to "OS"
-		target_dir = os.path.join(folder_path, "OD")
-		if not os.path.exists(target_dir):
-			target_dir = os.path.join(folder_path, "OS")
-		if not os.path.exists(target_dir):
-			continue # skip if it doesn't have the OD or OS subfolders
+		self.dropdown_rows = []
+		self.drag_data = None
 
-		# find first image file in target_dir
-		files = [f for f in os.listdir(target_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.tif'))]
-		if not files:
-			continue	# skip if no images
+		self.add_dropdown()  # Start with one OptionMenu
 
-		first_image_path = os.path.join(target_dir, files[0])
-		img = cv2.imread(first_image_path)
+		tk.Button(self, text="Print Selection Order", command=self.print_order).pack(pady=10)
 
-		if img is None:
-			continue	# skip if can't read image
+	def add_dropdown(self, default=None):
+		frame = tk.Frame(self.menu_frame, pady=0)
+		frame.grid(sticky="ew", padx=2, pady=0)
+		frame.columnconfigure(1, weight=1)  # column 1 (menu) expands
 
-		height, width, _ = img.shape
+		var = tk.StringVar(value=default or "Select image type")
 
-		# crop bottom-left region
-		top_square_height = width
-		bottom_rect_height = height - top_square_height
-		crop_height = (bottom_rect_height // 3) + 10
-		crop_width = int(width * 0.70)  # left 70% of image
+		# Drag handle (hidden initially)
+		handle = tk.Label(frame, text="≡", font=("Arial", 14), cursor="fleur")
+		handle.bind("<Button-1>", self.start_drag)
+		handle.bind("<B1-Motion>", self.do_drag)
+		handle.bind("<ButtonRelease-1>", self.stop_drag)
+		# Do not grid yet
 
-		# slice: rows (y), columns (x)
-		cropped = img[top_square_height : top_square_height + crop_height, 0:crop_width]
+		# Dropdown menu
+		menu = tk.OptionMenu(frame, var, *self.available_types,
+							 command=lambda val, v=var, f=frame, h=handle: self.option_selected(v, f, h))
+		menu.grid(row=0, column=1, sticky="ew", padx=2, pady=0)
+
+		# Remove button (hidden initially)
+		remove_btn = tk.Button(frame, text="✕", relief="flat", bd=0,
+						 command=lambda f=frame: self.remove_dropdown(f))
+		# Do not grid yet
+
+		self.dropdown_rows.append((frame, var, handle, remove_btn))
+
+	def option_selected(self, var, frame, handle):
+		if var.get() != "Select image type":
+			# Show handle on the left
+			handle.grid(row=0, column=0, padx=(0,2))
+			# Show remove button on the right
+			for f, v, h, remove_btn in self.dropdown_rows:
+				if f == frame:
+					remove_btn.grid(row=0, column=2, padx=(2,0))
+					break
+			# Add a new dropdown if this is the last
+			if var == self.dropdown_rows[-1][1]:
+				self.add_dropdown()
+			self.repack_dropdowns()
+
+	def remove_dropdown(self, frame):
+		for i, (f, v, h, r) in enumerate(self.dropdown_rows):
+			if f == frame:
+				f.destroy()
+				del self.dropdown_rows[i]
+				break
+		self.repack_dropdowns()
+
+	# --- Drag & reorder logic ---
+	def start_drag(self, event):
+		widget = event.widget.master
+		self.drag_data = {"widget": widget, "start_y": event.y_root, "orig_index": self.get_row_index(widget)}
+		widget.lift()
+
+		# Find the OptionMenu in this frame
+		for child in widget.winfo_children():
+			if isinstance(child, tk.OptionMenu):
+				child.config(bg="#929292")  # highlight only the menu
+				break
 
 
-		# Show cropped region for verification
-		if show:
-			plt.imshow(cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB))
-			plt.title(f"Cropped preview: {folder}")
-			plt.axis("off")
-			plt.show()
-			show = False
+	def do_drag(self, event):
+		if not self.drag_data:
+			return
 
-		# OCR
-		results = reader.readtext(cropped)
-		mouse_id = [res[1] for res in results]  # res[1] contains detected text
-		mouse_id_string = " ".join(mouse_id)
-		if folder in mouse_id_string:
-			ear_tag_number = mouse_id_string.split(folder, 1)[1]
-		else:
-			ear_tag_number = mouse_id_string
-			print(f"Folder ({folder}) not found in {mouse_id_string}")	
-		#ear_tag_number = mouse_id_string.split(folder, 1)[1] if folder in mouse_id_string else mouse_id_string
-		ear_tag_number = ear_tag_number.replace("_", " ").replace(",", " "). replace(".", " ")
-		ear_tag_number = " ".join(ear_tag_number.split()).strip()
+		widget = self.drag_data["widget"]
+		y = event.y_root
+		widget.lift()
 
-		print(f"{folder}: {ear_tag_number}")
+		# Find which frame we’re hovering over
+		hover_index = None
+		for i, (f, *_rest) in enumerate(self.dropdown_rows):
+			if f == widget or i == len(self.dropdown_rows) - 1:  # skip last row
+				continue
+			fy = f.winfo_rooty()
+			fh = f.winfo_height()
+			if fy < y < fy + fh:
+				hover_index = i
+				break
+
+		current_index = self.get_row_index(widget)
+		if hover_index is not None and hover_index != current_index:
+			# Reorder
+			self.dropdown_rows.insert(hover_index, self.dropdown_rows.pop(current_index))
+			self.repack_dropdowns()
+
+		self.drag_data["start_y"] = y
+
+	def stop_drag(self, event):
+		if not self.drag_data:
+			return
+
+		widget = self.drag_data["widget"]
+
+		# Find the OptionMenu child of this frame
+		for child in widget.winfo_children():
+			if isinstance(child, tk.OptionMenu):
+				child.config(bg="#f0f0f0")
+				break
+
+		self.drag_data = None
 
 
-directory = "C:/Users/bran314/Desktop/cSLO image compilation images/cSLO images"
-determine_ear_tag_number_in_cslo_images(directory)
+	def get_row_index(self, frame):
+		for i, (f, *_rest) in enumerate(self.dropdown_rows):
+			if f == frame:
+				return i
+		return None
+
+	def repack_dropdowns(self):
+		"""Repack frames using grid with proper row order."""
+		for i, (f, *_rest) in enumerate(self.dropdown_rows):
+			f.grid(row=i, column=0, columnspan=3, sticky="ew", pady=3)
+
+	def print_order(self):
+		order = [var.get() for _, var, *_ in self.dropdown_rows if var.get() != "Select image type"]
+		print("Selected order:", order)
+
+
+if __name__ == "__main__":
+	app = DraggableDropdownApp()
+	app.mainloop()
