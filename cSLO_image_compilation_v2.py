@@ -5,7 +5,7 @@ Created by Brandon Anderson
 --- Script organization ---
 ---------------------------
 1. Imports
-2. user_defined_settings function
+2. Settings dialog box
 	Uses tkinter dialog box to have the user imput how they want the compilation document to be organized
 	Each dialog box line (or group of lines) is divided into separate classes:
 		...
@@ -14,12 +14,18 @@ Created by Brandon Anderson
 4. ImageCompilation class
 	Takes the user's settings and processes them into a compilation document, divided into functions:
 		...
-5. The code the calls the user_defined_settings function and ImageCompilation class
+5. Main code orchestration
+	The code the calls the user_defined_settings function and ImageCompilation class
 	
 """
 
 
 
+"""
+---------------------------
+--------- Imports ---------
+---------------------------
+"""
 
 _last_len = 0
 def status(msg):
@@ -90,6 +96,12 @@ Removing mice manually doesn't update the row x column numbers
 
 
 
+
+"""
+---------------------------
+--- Settings dialog box ---
+---------------------------
+"""
 
 def user_defined_settings():
 	def on_close_window():
@@ -1241,8 +1253,11 @@ def user_defined_settings():
 
 
 
-
-
+"""
+----------------------------------
+--- Find OCT retina boundaries ---
+----------------------------------
+"""
 
 def find_oct_retina_bounds(img):
 	"""Return the topmost and bottommost pixel positions of the retina."""
@@ -1273,8 +1288,11 @@ def find_oct_retina_bounds(img):
 
 
 
-
-
+"""
+---------------------------------
+--- Compiling images together ---
+---------------------------------
+"""
 
 class ImageCompilation:
 	def __init__(self, settings=None, mode="full"):
@@ -2177,15 +2195,13 @@ class ImageCompilation:
 		return
 
 
+
+"""
+-------------------------------
+--- Main code orchestration ---
+-------------------------------
+"""
+
 settings = user_defined_settings()
-#for key, value in settings.items():
-#	print(f"{key}: {value}")
-
-#print("")
-#print(settings)
-
-
-
-#settings, mode = user_defined_settings()
 compiler = ImageCompilation(settings)
 compiler.run()
