@@ -70,8 +70,6 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 """
 Things left to do:
-**Preview layout
-Add lab ID
 Add presets
 Allow for groups
 Allow for multiple dates
@@ -403,7 +401,6 @@ def user_defined_settings():
 			self.df = pd.DataFrame(columns=[
 				"cSLO number",
 				"Lab ID",
-				"Cage number",
 				"Treatment group",
 				"Exclude images"
 			])
@@ -432,7 +429,6 @@ def user_defined_settings():
 					new_row = {
 						"cSLO number": mouse,
 						"Lab ID": "",
-						"Cage number": "",
 						"Treatment group": "",
 						"Exclude images": False
 					}
@@ -579,7 +575,7 @@ def user_defined_settings():
 
 			# Create dictionary with cSLO numbers (key) and [Lab ID, cage, group]
 			mouse_info_dic = {
-				row["cSLO number"]: (row["Lab ID"], row["Cage number"], row["Treatment group"])
+				row["cSLO number"]: (row["Lab ID"], row["Treatment group"])
 				for _, row in self.df_to_export.iterrows()
 			}
 
@@ -1190,6 +1186,10 @@ def user_defined_settings():
 			okay_button = tk.Button(self, text="Okay", command=self.on_ok_click)
 			okay_button.grid(row=0, column=2, padx=5)
 
+			# Settings button
+			settings_button = tk.Button(self, text="Print Settings", command=self.grab_settings)
+			settings_button.grid(row=0, column=3, padx=5)
+
 
 		def collect_settings(self):
 			self.settings = {}
@@ -1217,6 +1217,12 @@ def user_defined_settings():
 		def on_ok_click(self):
 			self.collect_settings()
 			root.destroy()
+
+		def grab_settings(self):
+			self.collect_settings()
+			
+			for key, value in self.settings.items():
+				print(f"{key}: {value}")
 
 
 
@@ -1307,6 +1313,7 @@ class ImageCompilation:
 					"OD": {"cslo": [], "oct": []},
 					"OS": {"cslo": [], "oct": []}
 				}
+		self.mouse_info_dic = self.settings['mouse_info_dic']
 
 		# Modify user input of image modalities to use into something more usable
 		# Ex. ('cSLO BAF (1st)', 'BAF') --> class(imager, image_type_name, select_required, multiple_index, custom_name)
@@ -1758,31 +1765,52 @@ class ImageCompilation:
 			x0, y0, x1, y1 = font.getbbox(text)
 			return (x1 - x0), (y1 - y0), -y0   # width, height, baseline offset
 
-		# Compute a consistent height for heading text (fixed)
+		# Fonts
 		heading_font = self.settings['heading_font']
+		subheading_font = self.settings['subheading_font']
+
+		# Compute a consistent height for heading text (fixed)
 		_, heading_h, heading_offset = measure_text(heading_font, "Hpqy")  # includes ascenders & descenders
 
 		# Gaps
-		gap_before_cslo_heading = 10
-		gap_after_cslo_heading = 5
+		gap_before_ID_heading = 10
+		gap_after_ID_heading = 15
 		gap_after_od_os = 25
 
 
+
+
 		# Create mouse number text (but not draw yet)
-		heading_font = self.settings['heading_font']
-		cslo_heading_text = mouse_id
-		cslo_heading_w, cslo_heading_h, baseline_offset = measure_text(heading_font, cslo_heading_text)
-		
-		cslo_heading_x = (individual_mouse_canvas_images_only.width - cslo_heading_w) // 2
-		cslo_heading_bottom = gap_before_cslo_heading + heading_h
+		use_cslo_number_heading = self.settings['cslo_number_bool']
+		use_labID_heading = self.settings['labID_bool']
+		if use_cslo_number_heading:							# If user selected to use the cSLO number
+			ID_heading_text = mouse_id
+		elif use_labID_heading:								# If user instead selected to use the lab ID
+			labID = self.mouse_info_dic[mouse_id][0]
+			ID_heading_text = labID
+		else:												# If user selected to not use either number (will still put a blank space)
+			ID_heading_text = ""
+		ID_heading_w, ID_heading_h, baseline_offset = measure_text(heading_font, ID_heading_text)
+		ID_heading_x = (individual_mouse_canvas_images_only.width - ID_heading_w) // 2
+		ID_heading_y = gap_before_ID_heading + baseline_offset
+		ID_heading_bottom = gap_before_ID_heading + heading_h
+
+		additional_heading_text = None
+		if use_cslo_number_heading and use_labID_heading:	# If both cSLO number and lab ID are to be used
+			labID = self.mouse_info_dic[mouse_id][0]
+			additional_heading_text = f"({labID})"
+			additional_ID_heading_w, _, additional_baseline_offset = measure_text(subheading_font, additional_heading_text)
+			_, additional_ID_heading_h, _ = measure_text(heading_font, "Hpqy")
+			additional_ID_heading_x = (individual_mouse_canvas_images_only.width - additional_ID_heading_w) // 2
+			additional_ID_heading_y = ID_heading_bottom + gap_after_ID_heading + additional_baseline_offset
+			ID_heading_bottom = additional_ID_heading_y + additional_ID_heading_h
 
 
 		# Create OD and OS text (but not draw yet)
-		subheading_font = self.settings['subheading_font']
 		od_w, od_h, od_offset = measure_text(subheading_font, "OD")
 		od_x = (self.image_width - od_w) // 2
 		os_x = od_x + self.image_width
-		od_y = cslo_heading_bottom + gap_after_cslo_heading
+		od_y = ID_heading_bottom + gap_after_ID_heading
 		os_y = od_y
 		
 		# Create new canvas with heading area
@@ -1796,8 +1824,11 @@ class ImageCompilation:
 
 		# Draw heading texts
 		draw = ImageDraw.Draw(individual_mouse_canvas)
-		draw.text((cslo_heading_x, gap_before_cslo_heading + baseline_offset), 
-			cslo_heading_text, font=heading_font, fill=self.settings['text_color'])
+		draw.text((ID_heading_x, ID_heading_y), 
+			ID_heading_text, font=heading_font, fill=self.settings['text_color'])
+		if additional_heading_text:
+			draw.text((additional_ID_heading_x, additional_ID_heading_y), 
+			additional_heading_text, font=subheading_font, fill=self.settings['text_color'])
 		draw.text((od_x, od_y + od_offset), 
 			"OD", font=subheading_font, fill=self.settings['text_color'])
 		draw.text((os_x, os_y + od_offset), 
@@ -1825,12 +1856,15 @@ class ImageCompilation:
 				
 				available_image_paths = cslo_and_oct_image_list[image_modality.imager]	# All paths for that imager and eye
 				
+
+				# -- Defining the image path --
+				only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
+				# If there aren't any images from that imager (cslo/oct)
 				if not available_image_paths:
-					continue
+					image_path_to_use = None
 
 				# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
-				only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
-				if only_one_image_exists:
+				elif only_one_image_exists:
 					for image_path in available_image_paths:
 						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
 						if modality == image_modality.image_type_name:
