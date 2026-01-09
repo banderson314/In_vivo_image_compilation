@@ -301,8 +301,6 @@ def user_defined_settings():
 			mouse_number_label = tk.Label(self, text=number_of_mice)
 			mouse_number_label.grid(row=0, column=1, padx=5)
 
-			#determine_button = tk.Button(self, text="Determine", command=self.figure_out_how_many_mice)
-			#determine_button.grid(row=0, column=2, padx=5)
 
 		def figure_out_how_many_mice(self):
 			directory_info_from_user = directory_frame.get_data().get("directories")
@@ -1279,6 +1277,41 @@ def user_defined_settings():
 			return {"images_to_use": self.selected_image_types}
 
 
+	class SaveLocationFrame(tk.Frame):
+		def __init__(self, parent):
+			super().__init__(parent)
+
+			folder_label = tk.Label(self, text="Save to folder:")
+			folder_label.grid(row=0, column=0, padx=5, sticky='w')
+
+			folder_entry = tk.Entry(self, width=40)
+			folder_entry.grid(row=0, column=1, padx=5)
+
+			button = tk.Button(self, text="Choose", command=self.choose_folder)
+			button.grid(row=0, column=2, padx=5)
+
+			file_label = tk.Label(self, text="File name:")
+			file_label.grid(row=1, column=0, padx=5, sticky='w')
+
+			file_entry = tk.Entry(self, width=40)
+			file_entry.grid(row=1, column=1, padx=5)
+
+			image_type_label = tk.Label(self, text=".jpg")
+			image_type_label.grid(row=1, column=2, padx=2, sticky='w')
+		
+		def choose_folder(self):
+			print("This doesn't work yet")
+
+		def update_file_name(self):
+			pass
+	
+		def get_data(self):
+			save_directory = int()
+			return {
+				""
+			}
+
+
 	class ConfirmationFrame(tk.Frame):
 		def __init__(self, parent):
 			super().__init__(parent)
@@ -1360,6 +1393,8 @@ def user_defined_settings():
 	oct_crop_frame.pack(anchor='w')
 	images_to_use_frame = ImagesToUseFrame(root)
 	images_to_use_frame.pack(anchor='w')
+	save_location_frame = SaveLocationFrame(root)
+	save_location_frame.pack(anchor='w')
 	confirmation_frame = ConfirmationFrame(root)
 	confirmation_frame.pack(anchor='s', pady=10)
 
