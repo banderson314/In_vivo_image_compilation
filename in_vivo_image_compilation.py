@@ -38,6 +38,7 @@ status("Importing packages")
 import tkinter as tk
 from tkinter import filedialog
 from tkinter import ttk
+from tkinter import messagebox
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Literal, ClassVar
@@ -69,16 +70,18 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 """
 Things left to do:
 Allow for multiple dates
-Final save location (and name)
 An extra optional dialog box with additional settings such as:
 	Margin size
 	Background and text color
 	Text size
+Give option for groups to be organized horizontally
+Expand Group entry boxes to allow for longer names
 
 	
 Updates you should consider including:
 Make margins proportional to images
 Text should also be made proportional to images (for now I'm just making OCT images bigger). When fixed, remove the line that says #self.image_width = 640
+Click on images to allow you to manually change them
 
 
 Bugs:
@@ -1284,31 +1287,63 @@ def user_defined_settings():
 			folder_label = tk.Label(self, text="Save to folder:")
 			folder_label.grid(row=0, column=0, padx=5, sticky='w')
 
-			folder_entry = tk.Entry(self, width=40)
-			folder_entry.grid(row=0, column=1, padx=5)
+			self.folder_entry = tk.Entry(self, width=40)
+			self.folder_entry.grid(row=0, column=1, padx=5)
+			self.folder_entry.bind("<KeyRelease>", self.check_directory)
 
-			button = tk.Button(self, text="Choose", command=self.choose_folder)
+			button = tk.Button(self, text="Choose", command=self.choose_directory)
 			button.grid(row=0, column=2, padx=5)
 
 			file_label = tk.Label(self, text="File name:")
 			file_label.grid(row=1, column=0, padx=5, sticky='w')
 
-			file_entry = tk.Entry(self, width=40)
-			file_entry.grid(row=1, column=1, padx=5)
+			self.file_entry = tk.Entry(self, width=40)
+			self.file_entry.grid(row=1, column=1, padx=5)
+			self.file_entry.insert(0, "in_vivo_image_compilation")
 
-			image_type_label = tk.Label(self, text=".jpg")
-			image_type_label.grid(row=1, column=2, padx=2, sticky='w')
-		
-		def choose_folder(self):
-			print("This doesn't work yet")
+			file_type_label = tk.Label(self, text=".jpg")
+			file_type_label.grid(row=1, column=2, padx=2, sticky='w')
+
+			#match_title_button = tk.Button(self, text="Match title", command=self.update_file_name)
+			#match_title_button.grid(row=1, column=3, padx=2, sticky='w')
+
+	
+
+		def choose_directory(self):
+			directory = filedialog.askdirectory()
+			if directory:
+				self.folder_entry.delete(0, tk.END)
+				self.folder_entry.insert(0, directory)
+
+		def check_directory(self, event=None):
+			inputted_directory = self.folder_entry.get()
+			if os.path.exists(inputted_directory):
+				self.folder_entry.config(fg="black")
+			else:
+				self.folder_entry.config(fg="red")
 
 		def update_file_name(self):
-			pass
+			title = title_frame.title_entry.get()
+			title = title.replace(" ", "_").lower()
+
+			self.file_entry.delete(0, tk.END)
+			self.file_entry.insert(0, title)
+			self.check_directory()
 	
 		def get_data(self):
-			save_directory = int()
+			save_directory = self.folder_entry.get()
+			if os.path.exists(save_directory):
+				valid_save_directory = True
+			else:
+				valid_save_directory = False
+
+			file_name = self.file_entry.get() + ".jpg"
+			full_path = os.path.join(save_directory, file_name)
+
 			return {
-				""
+				'final_product_file_path': full_path,
+				'valid_save_directory': valid_save_directory,
+				'file_name': file_name
 			}
 
 
@@ -1344,23 +1379,54 @@ def user_defined_settings():
 			self.settings.update(number_and_cslo_crop_frame.get_data())
 			self.settings.update(oct_crop_frame.get_data())
 			self.settings.update(images_to_use_frame.get_data())
+			self.settings.update(save_location_frame.get_data())
+			
+
+		def check_if_sufficient_information(self, final=False):
+			errors = []
+
+			if len(self.settings['mouse_info_dic']) == 0:
+				errors.append("No mice are detected")
+
+			if final:
+				if len(self.settings['images_to_use']) == 0:
+					errors.append("No images types are selected")
+
+				if not self.settings['valid_save_directory']:
+					errors.append("The save folder is not valid")
+
+				if self.settings['file_name'] == ".jpg":
+					errors.append("Must have file name")
+
+
+			if errors:
+				messagebox.showerror(
+					title="Missing Information",
+					message="\n".join(errors)
+				)
+				return False
+
+			return True
+
+
 
 			
 		def preview_layout(self):
 			self.collect_settings()
-			compiler = ImageCompilation(self.settings, mode="preview_layout")
-			compiler.run()
+			if self.check_if_sufficient_information():
+				compiler = ImageCompilation(self.settings, mode="preview_layout")
+				compiler.run()
 
 		def preview_layout_and_images(self):
 			self.collect_settings()
-			compiler = ImageCompilation(self.settings, mode="preview_layout_and_images")
-			compiler.run()
-			
-		
-	
+			if self.check_if_sufficient_information():
+				compiler = ImageCompilation(self.settings, mode="preview_layout_and_images")
+				compiler.run()
+				
 		def on_ok_click(self):
 			self.collect_settings()
-			root.destroy()
+			if self.check_if_sufficient_information(final=True):
+				root.destroy()
 
 		def grab_settings(self):
 			self.collect_settings()
@@ -1377,26 +1443,30 @@ def user_defined_settings():
 	root.columnconfigure(0, weight=1)
 	root.rowconfigure(0, weight=1)
 
+
 	directory_frame = DirectoryFrame(root)
-	directory_frame.pack(anchor='w')
 	number_of_mice_frame = NumberOfMiceFrame(root)
-	number_of_mice_frame.pack(anchor='w')
 	mouse_info_frame = MouseInfoFrame(root)
-	mouse_info_frame.pack(anchor='n', pady=3)
 	title_frame = TitleFrame(root)
-	title_frame.pack(anchor='w', fill='x')
 	row_col_frame = RowColumnFrame(root)
-	row_col_frame.pack(anchor='w')
 	number_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
-	number_and_cslo_crop_frame.pack(anchor='w')
 	oct_crop_frame = OctCropFrame(root)
-	oct_crop_frame.pack(anchor='w')
 	images_to_use_frame = ImagesToUseFrame(root)
-	images_to_use_frame.pack(anchor='w')
 	save_location_frame = SaveLocationFrame(root)
-	save_location_frame.pack(anchor='w')
 	confirmation_frame = ConfirmationFrame(root)
+
+	directory_frame.pack(anchor='w')
+	number_of_mice_frame.pack(anchor='w')
+	mouse_info_frame.pack(anchor='n', pady=3)
+	title_frame.pack(anchor='w', fill='x')
+	row_col_frame.pack(anchor='w')
+	number_and_cslo_crop_frame.pack(anchor='w')
+	oct_crop_frame.pack(anchor='w')
+	images_to_use_frame.pack(anchor='w')
+	save_location_frame.pack(anchor='w')
 	confirmation_frame.pack(anchor='s', pady=10)
+
+
 
 	root.mainloop()
 	return confirmation_frame.settings
@@ -1632,7 +1702,6 @@ class ImageCompilation:
 		additional_settings = {
 			'background_color': (15, 15, 15),	# black
 			'text_color': (255, 255, 255),				# white
-			'final_product_file_path': "C:/Users/bran314/Desktop/image_compilation.jpg",
 			'column_margin_size': 45,
 			'row_margin_size': 150,
 			'title_font': ImageFont.load_default(size=225),
