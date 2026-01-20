@@ -74,8 +74,6 @@ An extra optional dialog box with additional settings such as:
 	Margin size
 	Background and text color
 	Text size
-Give option for groups to be organized horizontally
-Expand Group entry boxes to allow for longer names
 
 	
 Updates you should consider including:
@@ -417,12 +415,16 @@ def user_defined_settings():
 			)
 
 
+
 		def edit_mouse_info(self):
 			top = tk.Toplevel(root)
 			top.title("Edit DataFrame")
 
 			entries = {}          # (i, col) -> Entry or BooleanVar
 			entry_widgets = {}    # (grid_row, grid_col) -> Entry widget
+			min_width = 20
+			max_width = 70
+			padding = 1
 
 			# Sorting the dataframe by cSLO number
 			self.df = self.df.sort_values(
@@ -463,7 +465,9 @@ def user_defined_settings():
 				label = tk.Label(top, text=col, font=("Arial", 10, "bold"))
 				label.grid(row=0, column=j, padx=2, pady=5)
 
+
 			# Data rows
+			column_entries = {}
 			for i, row in self.df.iterrows():
 				for j, col in enumerate(self.df.columns):
 					if col == "Exclude images":
@@ -473,15 +477,31 @@ def user_defined_settings():
 						entries[(i, col)] = var
 					else:
 						e = tk.Entry(top, justify="center")
-						e.grid(row=i + 1, column=j, padx=2, pady=0)
-						e.insert(0, row[col])
+						# Insert initial text
+						text = str(row[col])
+						e.insert(0, text)
 
+						# Add to column_entries
+						column_entries.setdefault(j, []).append(e)
+
+						e.grid(row=i + 1, column=j, padx=2, pady=0)
 						entries[(i, col)] = e
 						entry_widgets[(i + 1, j)] = e
 
+						def resize_column(event, col_index=j):
+							# Find max length among all entries in this column
+							max_len = max(len(entry.get()) for entry in column_entries[col_index])
+							new_width = min(max_width, max(min_width, max_len + padding))
+
+							# Update width of all entries in this column
+							for entry in column_entries[col_index]:
+								entry.config(width=new_width)
+
 						# Bind arrow keys
+						e.bind("<KeyRelease>", resize_column)
 						e.bind("<Up>",    lambda ev, r=i + 1, c=j: move_focus(ev, r, c))
 						e.bind("<Down>",  lambda ev, r=i + 1, c=j: move_focus(ev, r, c))
+
 
 
 			def save_changes():
@@ -492,15 +512,15 @@ def user_defined_settings():
 				if self.group_order == ['']:
 					self.group_order = []
 
-				# Updating the row x column options based off of groups, if it exists
-				if self.group_order:
-					largest_group_size = self.df['Group'].value_counts().max()
-					row_col_frame.update_numbers(largest_group_size)
-
 				# Update mouse count based on exclusions
 				number_of_mice_frame.update_mouse_number(
 					self.count_included_mice()
 				)
+
+				# Updating the row x column options based off of groups, if it exists
+				if self.group_order:
+					largest_group_size = self.df['Group'].value_counts().max()
+					row_col_frame.update_numbers(largest_group_size)
 
 				top.destroy()
 
@@ -812,6 +832,18 @@ def user_defined_settings():
 			self.row_entry.bind("<KeyRelease>", self.update_columns)
 			self.column_entry.bind("<KeyRelease>", self.update_rows)
 
+
+			# Arrange groups
+			group_label = tk.Label(self, text="Arrage groups:")
+			group_label.grid(row=0, column=4, padx=5)
+
+			self.group_arrangment_option = tk.StringVar(value="vertical")
+			rb1 = tk.Radiobutton(self, text="Vertically", variable=self.group_arrangment_option, value="vertical")
+			rb2 = tk.Radiobutton(self, text="Horizontally", variable=self.group_arrangment_option, value="horizontal")
+			rb1.grid(row=0, column=5, padx=0)
+			rb2.grid(row=0, column=6, padx=0)
+
+
 		# Triggered when other things happen in the dialog box
 		def update_numbers(self, new_total_number):
 			self.number_of_mice = new_total_number
@@ -870,7 +902,8 @@ def user_defined_settings():
 		def get_data(self):
 			return {
 				"number_of_rows": int(self.row_entry.get()),
-				"number_of_columns": int(self.column_entry.get())
+				"number_of_columns": int(self.column_entry.get()),
+				"arrange_groups": self.group_arrangment_option.get()
 			}
 
 
@@ -892,6 +925,22 @@ def user_defined_settings():
 			labID_cb = tk.Checkbutton(self, text="Lab IDs", variable=self.labID_var)
 			labID_cb.grid(row=0, column=2, padx=5, pady=0, sticky="w")
 
+			divider_label = tk.Label(self, text="|")
+			divider_label.grid(row=0, column=3, padx=5)
+
+			self.od_var = tk.BooleanVar(value=True)
+			od_cb = tk.Checkbutton(self, text="OD", variable=self.od_var)
+			od_cb.grid(row=0, column=4, padx=2)
+
+			self.os_var = tk.BooleanVar(value=True)
+			os_cb = tk.Checkbutton(self, text="OS", variable=self.os_var)
+			os_cb.grid(row=0, column=5, padx=2)
+
+			self.separate_eyes_var = tk.BooleanVar(value=False)
+			separate_eyes_cb = tk.Checkbutton(self, text="Separate OD/OS", variable=self.separate_eyes_var)
+			separate_eyes_cb.grid(row=0, column=6, padx=2)
+			separate_eyes_cb.config(state="disabled")
+
 			# Crop cSLO text checkbox
 			self.crop_cslo_text_var = tk.BooleanVar(value=True)
 			crop_cslo_text_cb = tk.Checkbutton(self, text="Crop the text off of cSLO images",
@@ -902,11 +951,15 @@ def user_defined_settings():
 			self.cslo_number_bool = self.cslo_number_var.get()
 			self.labID_bool = self.labID_var.get()
 			self.crop_cslo_text_bool = self.crop_cslo_text_var.get()
+			self.use_od_bool = self.od_var.get()
+			self.use_os_bool = self.os_var.get()
 
 			return {
 				"cslo_number_bool": self.cslo_number_bool,
 				"labID_bool": self.labID_bool,
-				"crop_cslo_text_bool": self.crop_cslo_text_bool
+				"crop_cslo_text_bool": self.crop_cslo_text_bool,
+				"use_od_bool": self.use_od_bool,
+				"use_os_bool": self.use_os_bool
 			}
 
 	
@@ -1412,6 +1465,9 @@ def user_defined_settings():
 
 			if len(self.settings['mouse_info_dic']) == 0:
 				errors.append("No mice are detected")
+
+			if not self.settings["use_od_bool"] and not self.settings["use_os_bool"]:
+				errors.append("Need at least OD or OS selected")
 
 			if final:
 				if len(self.settings['images_to_use']) == 0:
@@ -1980,7 +2036,12 @@ class ImageCompilation:
 				elif image_modality.imager == "oct":
 					oct_count += 1
 			
-			canvas_width = self.image_width * 2	# 2x because OD and OS
+			
+			if self.settings["use_od_bool"] and self.settings["use_os_bool"]:
+				number_of_eyes = 2
+			else:
+				number_of_eyes = 1
+			canvas_width = self.image_width * number_of_eyes
 			canvas_height = (self.cslo_height * cslo_count) + (self.oct_height * oct_count)
 			canvas = Image.new("RGB", (canvas_width, canvas_height), color="black")
 
@@ -2042,6 +2103,12 @@ class ImageCompilation:
 
 
 		# Create OD and OS text (but not draw yet)
+		if self.settings["use_od_bool"] and self.settings["use_os_bool"]:
+			eye_configuration = "both"
+		elif self.settings["use_od_bool"]:
+			eye_configuration = "OD"
+		else:
+			eye_configuration = "OS"
 		od_w, od_h, od_offset = self.measure_text(subheading_font, "OD")
 		od_x = (self.image_width - od_w) // 2
 		os_x = od_x + self.image_width
@@ -2064,10 +2131,17 @@ class ImageCompilation:
 		if additional_heading_text:
 			draw.text((additional_ID_heading_x, additional_ID_heading_y), 
 			additional_heading_text, font=subheading_font, fill=self.settings['text_color'])
-		draw.text((od_x, od_y + od_offset), 
-			"OD", font=subheading_font, fill=self.settings['text_color'])
-		draw.text((os_x, os_y + od_offset), 
-			"OS", font=subheading_font, fill=self.settings['text_color'])
+		if eye_configuration == "both":
+			draw.text((od_x, od_y + od_offset), 
+				"OD", font=subheading_font, fill=self.settings['text_color'])
+			draw.text((os_x, os_y + od_offset), 
+				"OS", font=subheading_font, fill=self.settings['text_color'])
+		elif eye_configuration == "OD":
+			draw.text((od_x, od_y + od_offset), 
+				"OD", font=subheading_font, fill=self.settings['text_color'])
+		elif eye_configuration == "OS":
+			draw.text((od_x, od_y + od_offset), 
+				"OS", font=subheading_font, fill=self.settings['text_color'])
 
 
 		x_offset_od = 0
@@ -2088,6 +2162,12 @@ class ImageCompilation:
 		for eye, cslo_and_oct_image_list in self.mouse_image_list[mouse_id].items():
 			for image_modality in self.image_type_objects:	# Loops through the images the user selected they wanted (i.e. BAF, IRAF, horizontal, etc.)
 				image_path_to_use = None
+
+				# Skip OD or OS if user specified
+				if eye_configuration == "OD" and eye == "OS":
+					continue
+				elif eye_configuration == "OS" and eye == "OD":
+					continue
 				
 				available_image_paths = cslo_and_oct_image_list[image_modality.imager]	# All paths for that imager and eye
 				
@@ -2139,10 +2219,12 @@ class ImageCompilation:
 				# -- Putting the image into the individual mouse canvas --
 				if image_path_to_use:
 					img = Image.open(image_path_to_use)
+					# Crop image
 					if image_modality.imager == "cslo" and self.settings['crop_cslo_text_bool']:
 						img = crop_cslo_image(img)
 					elif image_modality.imager == "oct" and self.settings['oct_crop_bool']:
 						img = crop_oct_image(img)
+				# Insert black box if no image present
 				else:
 					if image_modality.imager == "cslo":
 						w, h = self.cslo_width, self.cslo_height
@@ -2161,10 +2243,10 @@ class ImageCompilation:
 
 					
 				# Setting x, y offsets
-				if eye == "OD":
+				if eye == "OD" or eye_configuration == "OS":
 					x_offset = x_offset_od
 					y_offset = y_offset_od
-				elif eye == "OS":
+				elif eye == "OS" and eye_configuration != "OS":
 					x_offset = x_offset_os
 					y_offset = y_offset_os
 
@@ -2180,9 +2262,9 @@ class ImageCompilation:
 				individual_mouse_canvas.paste(img, (x_offset, y_offset))
 				
 				# Adjusting offsets
-				if eye == "OD":
+				if eye == "OD" or eye_configuration == "OS":
 					y_offset_od += img.height
-				elif eye == "OS":
+				elif eye == "OS" and eye_configuration != "OS":
 					y_offset_os += img.height
 
 
@@ -2351,11 +2433,13 @@ class ImageCompilation:
 					top_of_image += self.oct_height
 
 
-		def assemble_mouse_canvases_into_layout(mouse_list, y_offset):
+		def assemble_mouse_canvases_into_layout(mouse_list, x_offset, y_offset):
 			nonlocal i
 			column_count = 0
-			column_one_x_offset = determine_size_of_column_one_x_offset()
-			x_offset = column_one_x_offset
+			original_x_offset = x_offset
+			right_most_pixel = x_offset
+
+			print
 
 			for mouse in mouse_list:
 				# Inserting image type titles on the far left
@@ -2373,34 +2457,46 @@ class ImageCompilation:
 				# Determining the next column/row to use
 				column_count += 1
 				if column_count == number_of_columns:
-					x_offset = column_one_x_offset
+					x_offset = original_x_offset
 					y_offset = mouse_element.bottom + row_margin_size
 					column_count = 0
 				else:
 					x_offset = mouse_element.right + column_margin_size
 
+				if right_most_pixel < mouse_element.right:
+					right_most_pixel = mouse_element.right
+
 				status(f"Processing mouse canvases: {i}/{number_of_mice}")
 			
 			bottom_pixel = mouse_element.bottom
-			return(bottom_pixel)
+			return(right_most_pixel, bottom_pixel)
 
 		# Determining location and pasting mouse images onto master canvas
 		group_order = self.settings['group_order']
 		y_offset = subtitle_element.bottom + row_margin_size
+		column_one_x_offset = determine_size_of_column_one_x_offset()
 
 		number_of_mice = len(self.settings['mouse_info_dic'])
 		i = 1
 
+		arrange_groups = self.settings['arrange_groups']
 		if group_order:		# Only doing the group loop if there are actually groups defined
+			x_offset = column_one_x_offset
+			
 			for group in group_order:
 				# Create group name element
+				if arrange_groups == "vertical":
+					group_name_x_offset = outer_margin_size
+				else:
+					group_name_x_offset = x_offset
+
 				group_element = LayoutElement.from_text(
 					group,
 					self.settings['group_font'],
-					(outer_margin_size, y_offset)
+					(group_name_x_offset, y_offset)
 				)
 				self.master_canvas_elements.append(group_element)
-				_, group_text_h, _ = self.measure_text(self.settings['group_font'], group)
+				_, group_text_h, _ = self.measure_text(self.settings['group_font'], "Hpqy")
 				y_offset += group_text_h + int(row_margin_size / 2)
 
 				# Assembling the mouse canvases into the layout for the group
@@ -2408,14 +2504,21 @@ class ImageCompilation:
 				for mouse, mouse_info in self.settings['mouse_info_dic'].items():
 					if mouse_info[1] == group:
 						group_mice_list.append(mouse)
-				bottom_pixel = assemble_mouse_canvases_into_layout(group_mice_list, y_offset)
+				if not group_mice_list:		# Ignores groups that don't have any mice in them (i.e. the mice got excluded)
+					continue
+				right_pixel, bottom_pixel = assemble_mouse_canvases_into_layout(group_mice_list, x_offset, y_offset)
 				
-				# Adjusting the y_offset
-				y_offset  = bottom_pixel + (row_margin_size * 2)
+				# Adjusting the offsets
+				if arrange_groups == "vertical":
+					x_offset = column_one_x_offset
+					y_offset = bottom_pixel + (row_margin_size * 2)
+				else:
+					x_offset = right_pixel + (column_margin_size * 5)
+					y_offset = subtitle_element.bottom + row_margin_size
 				
 		else:
 			mouse_list = list(self.settings['mouse_info_dic'].keys())
-			_ = assemble_mouse_canvases_into_layout(mouse_list, y_offset)
+			_, _ = assemble_mouse_canvases_into_layout(mouse_list, column_one_x_offset, y_offset)
 
 
 
