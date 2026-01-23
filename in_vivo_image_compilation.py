@@ -80,9 +80,11 @@ Updates you should consider including:
 Make margins proportional to images
 Text should also be made proportional to images (for now I'm just making OCT images bigger). When fixed, remove the line that says #self.image_width = 640
 Click on images to allow you to manually change them
+Do we want to have the OD/OS text if only one eye is used?
 
 
 Bugs:
+Check: if you have created groups and then decide to get rid of them, it still acts like it has groups
 
 """
 
@@ -140,6 +142,16 @@ def user_defined_settings():
 									command=lambda e=entry: self.checkbox_toggle(e, 'oct'))
 			oct_cb.grid(row=row_index, column=4, padx=5, pady=0)
 
+			# Date entry
+			date_entry = tk.Entry(self, width=10)
+			date_entry.grid(row=row_index, column=5, padx=5)
+			date_entry.bind("<KeyRelease>", self.on_date_entry_change)
+			self.placeholder_text = "date"
+			date_entry.insert(0, self.placeholder_text)
+			date_entry.config(fg="grey")
+			date_entry.bind("<FocusIn>", self.on_date_focus_in)
+			date_entry.bind("<FocusOut>", self.on_date_focus_out)
+
 			# Store the row info
 			self.rows.append({
 				'entry': entry,
@@ -147,8 +159,21 @@ def user_defined_settings():
 				'oct_var': oct_var,
 				'cslo_cb': cslo_cb,
 				'oct_cb': oct_cb,
-				'button': button
+				'button': button,
+				'date_entry': date_entry
 			})
+
+		def on_date_focus_in(self, event):
+			date_entry_widget = event.widget
+			if date_entry_widget.get() == self.placeholder_text:
+				date_entry_widget.delete(0, tk.END)
+				date_entry_widget.config(fg="black")
+
+		def on_date_focus_out(self, event):
+			date_entry_widget = event.widget
+			if not date_entry_widget.get():
+				date_entry_widget.insert(0, self.placeholder_text)
+				date_entry_widget.config(fg="grey")
 
 		def cleanup_empty_rows(self):
 			# Keep the last row, delete other empty rows
@@ -158,7 +183,7 @@ def user_defined_settings():
 					new_rows.append(row)
 				else:
 					# Remove widgets from grid
-					for widget in ['entry', 'cslo_cb', 'oct_cb', 'button']:
+					for widget in ['entry', 'cslo_cb', 'oct_cb', 'button', 'date_entry']:
 						row[widget].grid_forget()
 			self.rows = new_rows
 
@@ -168,6 +193,7 @@ def user_defined_settings():
 				row['button'].grid(row=i, column=2, padx=5, pady=0)
 				row['cslo_cb'].grid(row=i, column=3, padx=5, pady=0)
 				row['oct_cb'].grid(row=i, column=4, padx=5, pady=0)
+				row['date_entry'].grid(row=i, column=5, padx=5, pady=0)
 
 			# Update the number of mice
 			number_of_mice_frame.mice_set.clear()
@@ -271,6 +297,9 @@ def user_defined_settings():
 				row['entry'].insert(0, directory)
 				self.on_entry_change(event=type('Event', (), {'widget': row['entry']})())
 
+		def on_date_entry_change(self, event):
+			return
+
 		def get_data(self):
 			directories = []
 			for row in self.rows:
@@ -283,8 +312,11 @@ def user_defined_settings():
 							image_type = "oct"
 						else:
 							image_type = None
+						date = row['date_entry'].get()
+						if date == 'date':
+							date = ""
 
-						directories.append((path, image_type))
+						directories.append((path, image_type, date))
 			
 			return {"directories": directories}
 
@@ -307,7 +339,7 @@ def user_defined_settings():
 			directory_info_from_user = directory_frame.get_data().get("directories")
 			
 			for entry in directory_info_from_user:
-				directory_path, image_type = entry
+				directory_path, image_type, date = entry
 
 				if image_type == "oct":
 					
@@ -363,6 +395,7 @@ def user_defined_settings():
 				"Exclude images"
 			])
 			self.group_order = []
+			self.date_order = []
 
 			edit_button = tk.Button(self, text="Edit mouse info", command=self.edit_mouse_info)
 			edit_button.grid(row=0, column=0, padx=5)
@@ -371,7 +404,7 @@ def user_defined_settings():
 								  command=self.determine_cslo_labID_number)
 			cslo_labID_button.grid(row=0, column=1, padx=5)
 
-			group_order_button = tk.Button(self, text="Group order", command=self.edit_group_order)
+			group_order_button = tk.Button(self, text="Group & date order", command=self.edit_group_date_order)
 			group_order_button.grid(row=0, column=2, padx=5)
 
 
@@ -589,7 +622,7 @@ def user_defined_settings():
 					ear_tag_number = mouse_id_string.split(folder, 1)[1]
 				else:
 					ear_tag_number = mouse_id_string
-					print(f"Folder ({folder}) not found in {mouse_id_string}")	
+					status(f"Folder ({folder}) not found in {mouse_id_string}")	
 				ear_tag_number = ear_tag_number.replace("_", " ").replace(",", " "). replace(".", " ")
 				ear_tag_number = " ".join(ear_tag_number.split()).strip()
 
@@ -602,14 +635,14 @@ def user_defined_settings():
 		def determine_cslo_labID_number(self):
 			# Get a list of directories that have cSLO images
 			data_dic = directory_frame.get_data()
-			available_directories = data_dic["directories"]	# Will be a list of tuples: (directory, "cslo"/"oct")
+			available_directories = data_dic["directories"]	# Will be a list of tuples: (directory, "cslo"/"oct", date)
 			cslo_directories = []
-			for directory, image_type in available_directories:
+			for directory, image_type, date in available_directories:
 				if image_type == "cslo":
 					cslo_directories.append(directory)
 			
 			if len(cslo_directories) == 0:
-				print("No cSLO directories found")
+				status("No cSLO directories found")
 				return
 			
 			# Going through the cSLO image directories and grabbing the information from the images and putting it in the df
@@ -627,35 +660,59 @@ def user_defined_settings():
 			self.edit_mouse_info()
 
 
-		def edit_group_order(self):
+		def edit_group_date_order(self):
+
 			class GroupOrderDialog:
-				def __init__(self, root, groups):
+				def __init__(self, root, groups, dates):
 					self.root = root
+
 					self.groups = groups[:]
-					self.rows = []
+					self.dates = list(dates)
+
+					self.group_rows = []
+					self.date_rows = []
+
 					self.drag_data = None
+					self.drag_target = None  # "group" or "date"
 
 					self.win = tk.Toplevel(root)
-					self.win.title("Order groups")
-					self.win.minsize(150, 0)
+					self.win.title("Change order")
 					self.win.transient(root)
 					self.win.grab_set()
 
 					self.container = tk.Frame(self.win)
 					self.container.pack(fill="both", expand=True, padx=10, pady=10)
 
-					self.build_rows()
+					# ---------- Group order ----------
+					tk.Label(self.container, text="Group order:", anchor="w").pack(fill="x", pady=(0, 4))
+
+					self.group_container = tk.Frame(self.container)
+					self.group_container.pack(fill="x", pady=(0, 10))
+
+					self.build_group_rows()
+
+					# ---------- Date order ----------
+					tk.Label(self.container, text="Date order:", anchor="w").pack(fill="x", pady=(6, 4))
+
+					self.date_container = tk.Frame(self.container)
+					self.date_container.pack(fill="x")
+
+					self.build_date_rows()
 
 					btn = tk.Button(self.win, text="OK", command=self.on_ok)
-					btn.pack(pady=6)
+					btn.pack(pady=8)
 
-				# ---------- UI ----------
-				def build_rows(self):
+				# ---------- Build rows ----------
+				def build_group_rows(self):
 					for group in self.groups:
-						self.add_row(group)
+						self.add_row(group, self.group_container, self.group_rows, "group")
 
-				def add_row(self, text):
-					row = tk.Frame(self.container)
+				def build_date_rows(self):
+					for date in self.dates:
+						self.add_row(date, self.date_container, self.date_rows, "date")
+
+				def add_row(self, text, parent, row_list, target):
+					row = tk.Frame(parent)
 					row.pack(fill="x", pady=2)
 
 					handle = tk.Label(row, text="☰", cursor="fleur")
@@ -664,33 +721,27 @@ def user_defined_settings():
 					label = tk.Label(row, text=text, anchor="w")
 					label.pack(side="left", fill="x", expand=True)
 
-					# Drag bindings ONLY on handle
-					handle.bind("<Button-1>", self.start_drag)
+					handle.bind("<Button-1>", lambda e: self.start_drag(e, target))
 					handle.bind("<B1-Motion>", self.do_drag)
 					handle.bind("<ButtonRelease-1>", self.stop_drag)
 
-					self.rows.append(row)
+					row_list.append(row)
 
-				def repack_rows(self):
-					for row in self.rows:
+				def repack_rows(self, rows):
+					for row in rows:
 						row.pack_forget()
 						row.pack(fill="x", pady=2)
 
-				def get_row_index(self, row):
-					return self.rows.index(row)
-
 				# ---------- Drag logic ----------
-				def start_drag(self, event):
+				def start_drag(self, event, target):
 					widget = event.widget.master
+
+					self.drag_target = target
+					rows = self.group_rows if target == "group" else self.date_rows
 
 					self.drag_data = {
 						"widget": widget,
-						"start_y": event.y_root,
-						"orig_index": self.get_row_index(widget),
-						"original_colors": {
-							widget: widget.cget("bg"),
-							**{child: child.cget("bg") for child in widget.winfo_children()}
-						}
+						"rows": rows
 					}
 
 					widget.lift()
@@ -703,10 +754,12 @@ def user_defined_settings():
 						return
 
 					widget = self.drag_data["widget"]
-					y = event.y_root
+					rows = self.drag_data["rows"]
 
+					y = event.y_root
 					hover_index = None
-					for i, row in enumerate(self.rows):
+
+					for i, row in enumerate(rows):
 						if row == widget:
 							continue
 						ry = row.winfo_rooty()
@@ -715,36 +768,50 @@ def user_defined_settings():
 							hover_index = i
 							break
 
-					current_index = self.get_row_index(widget)
+					current_index = rows.index(widget)
 					if hover_index is not None and hover_index != current_index:
-						self.rows.insert(hover_index, self.rows.pop(current_index))
-						self.groups.insert(hover_index, self.groups.pop(current_index))
-						self.repack_rows()
+						rows.insert(hover_index, rows.pop(current_index))
+
+						if self.drag_target == "group":
+							self.groups.insert(hover_index, self.groups.pop(current_index))
+						else:
+							self.dates.insert(hover_index, self.dates.pop(current_index))
+
+						self.repack_rows(rows)
 
 				def stop_drag(self, event):
 					widget = self.drag_data["widget"]
-					original_colors = self.drag_data["original_colors"]
 
-					widget.config(bg=original_colors[widget])
+					widget.config(bg=self.win.cget("bg"))
 					for child in widget.winfo_children():
-						child.config(bg=original_colors[child])
+						child.config(bg=self.win.cget("bg"))
 
 					self.drag_data = None
+					self.drag_target = None
 
 				# ---------- Result ----------
 				def on_ok(self):
 					self.win.destroy()
 
 				def get_result(self):
-					return self.groups
+					return self.groups, self.dates
 
-			if self.group_order == []:
+			# ---------- Data prep ----------
+			if not self.group_order:
 				self.group_order = self.df["Group"].unique().tolist()
 
-			dialog = GroupOrderDialog(root, self.group_order)
+			# If date order hasn't been specified yet or dates have been added/changed
+			available_dates = {date for _, _, date in directory_frame.get_data()["directories"]}
+			if not self.date_order or set(self.date_order) != available_dates:
+				self.date_order = list(available_dates)
+
+
+			dialog = GroupOrderDialog(root, self.group_order, self.date_order)
 			root.wait_window(dialog.win)
 
-			self.group_order = dialog.get_result()
+			self.group_order, self.date_order = dialog.get_result()
+
+
 
 		def get_data(self):
 			self.df_to_export = self.df
@@ -764,9 +831,23 @@ def user_defined_settings():
 			# Sort the dictionary
 			mouse_info_dic = dict(sorted(mouse_info_dic.items()))
 
+			# If the only group is blank
+			if self.group_order == ['']:
+				self.group_order = []
+			
+			# Check that self.date_order actually contains the dates that are listed
+			dates = {date for _, _, date in directory_frame.get_data()["directories"]} 
+			if set(self.date_order) != dates:
+				self.date_order = sorted(dates)
+			if self.date_order == [""]:
+				self.date_order = []
+
+
 			return {
 				"mouse_info_dic": mouse_info_dic,
-				"group_order": self.group_order
+				"group_order": self.group_order,
+				"date_order": self.date_order
+
 			}
 
 
@@ -1111,7 +1192,7 @@ def user_defined_settings():
 			directories = directory_frame.get_data()["directories"]
 			self.available_image_types_set = set()
 
-			for directory, image_type in directories:
+			for directory, image_type, date in directories:
 				if image_type == "oct":
 					image_files = [
 						f for f in os.listdir(directory)
@@ -1469,6 +1550,9 @@ def user_defined_settings():
 			if not self.settings["use_od_bool"] and not self.settings["use_os_bool"]:
 				errors.append("Need at least OD or OS selected")
 
+			if self.settings["use_od_bool"] and self.settings["use_os_bool"] and self.settings["date_order"]:
+				errors.append("If dates are used, eyes must be separated or use only one eye")
+
 			if final:
 				if len(self.settings['images_to_use']) == 0:
 					errors.append("No images types are selected")
@@ -1511,7 +1595,7 @@ def user_defined_settings():
 
 		def grab_settings(self):
 			self.collect_settings()
-			
+			print("")
 			for key, value in self.settings.items():
 				print(f"{key}: {value}")
 
@@ -1619,7 +1703,7 @@ class ImageCompilation:
 		# First cslo images
 		self.cslo_width = 0
 		self.cslo_height = 0
-		for directory, imager in self.settings['directories']:
+		for directory, imager, date in self.settings['directories']:
 			if imager == "cslo" and not hasattr(self, "example_cslo_image"):
 				# Get the first subdirectory in the root
 				first_subdir = next(
@@ -1660,7 +1744,7 @@ class ImageCompilation:
 		# Then oct images
 		self.oct_width = 0
 		self.oct_height = 0
-		for directory, imager in self.settings['directories']:
+		for directory, imager, date in self.settings['directories']:
 			if imager == "oct" and not hasattr(self, "example_oct_image"):
 				files = [
 					f for f in os.listdir(directory)
@@ -1782,7 +1866,7 @@ class ImageCompilation:
 		"""Add additional settings to self.settings"""
 		additional_settings = {
 			'background_color': (15, 15, 15),	# black
-			'text_color': (255, 255, 255),				# white
+			'text_color': (255, 255, 255),		# white
 			'column_margin_size': 45,
 			'row_margin_size': 150,
 			'title_font': ImageFont.load_default(size=225),
@@ -1804,15 +1888,16 @@ class ImageCompilation:
 			# Dividing directories into cSLO and OCT
 			cslo_directories = []
 			oct_directories = []
-			for directory, image_type in self.settings['directories']:
+
+			for directory, image_type, date in self.settings['directories']:
 				if image_type == "cslo":
-					cslo_directories.append(directory)
+					cslo_directories.append((directory, date))
 				elif image_type == "oct":
-					oct_directories.append(directory)
+					oct_directories.append((directory, date))
 			
 			# Creating a list of file paths for cSLO images
 			cslo_image_file_paths = []
-			for directory in cslo_directories:
+			for directory, date in cslo_directories:
 				mice = [f for f in os.listdir(directory) if os.path.isdir(os.path.join(directory, f))]
 				mice_directories = []
 				
@@ -1827,17 +1912,19 @@ class ImageCompilation:
 						if folder_name in ("OD", "OS"):
 							for f in files:
 								if f.lower().endswith(tuple(image_extensions)):
-									cslo_image_file_paths.append(os.path.join(root, f))
+									cslo_image_file_paths.append((os.path.join(root, f), date))
+
 			
 			# Creating a list of file paths for OCT images
 			oct_image_file_paths = []
-			for directory in oct_directories:
+			for directory, date in oct_directories:
 				potential_oct_image_files = [f for f in os.listdir(directory)
 							if f.lower().endswith(tuple(image_extensions))]
 				
 				for file in potential_oct_image_files:
 					if file.split("_")[0] in self.settings["mouse_info_dic"]:
-						oct_image_file_paths.append(os.path.join(directory, file))
+						oct_image_file_paths.append((os.path.join(directory, file), date))
+
 			
 
 			return cslo_image_file_paths, oct_image_file_paths
@@ -1848,7 +1935,7 @@ class ImageCompilation:
 
 			# Looping through all file paths and only including the needed ones
 			image_modalities_to_use = {obj.image_type_name for obj in self.image_type_objects}
-			for path in list_of_file_paths:
+			for path, date in list_of_file_paths:
 				_, _, mouse_number, _, modality = self.convert_path_to_base_name_and_parts(path, cslo_or_oct)
 				
 				# Remove mice that had previously been excluded
@@ -1860,15 +1947,18 @@ class ImageCompilation:
 					continue
 				# Note that if there are multiple of one modality, all of them will be included. This will be filtered properly when the images are being inserted.
 
-				new_list_of_file_paths.append(path)
+				new_list_of_file_paths.append((path, date))
 
 			return new_list_of_file_paths
 
 
 		def create_image_path_dic(list_of_file_paths, cslo_or_oct):
-			for path in list_of_file_paths:
+			for path, date in list_of_file_paths:
 				_, _, mouse_number, eye, _ = self.convert_path_to_base_name_and_parts(path, cslo_or_oct)
-				self.mouse_image_list[mouse_number][eye][cslo_or_oct].append(path)
+				self.mouse_image_list[mouse_number][eye][cslo_or_oct].append({
+					"path": path,
+					"date": date
+				})
 
 		cslo_image_file_paths, oct_image_file_paths = create_list_of_all_image_paths()
 
@@ -1877,6 +1967,13 @@ class ImageCompilation:
 		
 		create_image_path_dic(cslo_image_file_paths, "cslo")
 		create_image_path_dic(oct_image_file_paths, "oct")
+
+		
+
+
+
+#################################################################################################################################
+
 
 
 
@@ -2041,7 +2138,14 @@ class ImageCompilation:
 				number_of_eyes = 2
 			else:
 				number_of_eyes = 1
-			canvas_width = self.image_width * number_of_eyes
+			
+			date_order = self.settings["date_order"]
+			if date_order:
+				number_of_dates = len(date_order)
+			else:
+				number_of_dates = 1
+
+			canvas_width = self.image_width * number_of_eyes * number_of_dates
 			canvas_height = (self.cslo_height * cslo_count) + (self.oct_height * oct_count)
 			canvas = Image.new("RGB", (canvas_width, canvas_height), color="black")
 
@@ -2068,13 +2172,12 @@ class ImageCompilation:
 		subheading_font = self.settings['subheading_font']
 
 		# Compute a consistent height for heading text (fixed)
-		_, heading_h, heading_offset = self.measure_text(heading_font, "Hpqy")  # includes ascenders & descenders
+		_, heading_h, _ = self.measure_text(heading_font, "Hpqy")  # includes ascenders & descenders
 
 		# Gaps
 		gap_before_ID_heading = 10
 		gap_after_ID_heading = 15
 		gap_after_od_os = 25
-
 
 		# Create mouse number text (but not draw yet)
 		use_cslo_number_heading = self.settings['cslo_number_bool']
@@ -2086,10 +2189,10 @@ class ImageCompilation:
 			ID_heading_text = labID
 		else:												# If user selected to not use either number (will still put a blank space)
 			ID_heading_text = ""
-		ID_heading_w, ID_heading_h, baseline_offset = self.measure_text(heading_font, ID_heading_text)
+		ID_heading_w, _, baseline_offset = self.measure_text(heading_font, ID_heading_text)
 		ID_heading_x = (individual_mouse_canvas_images_only.width - ID_heading_w) // 2
 		ID_heading_y = gap_before_ID_heading + baseline_offset
-		ID_heading_bottom = gap_before_ID_heading + heading_h
+		bottom_pixel = gap_before_ID_heading + heading_h
 
 		additional_heading_text = None
 		if use_cslo_number_heading and use_labID_heading:	# If both cSLO number and lab ID are to be used
@@ -2098,8 +2201,8 @@ class ImageCompilation:
 			additional_ID_heading_w, _, additional_baseline_offset = self.measure_text(subheading_font, additional_heading_text)
 			_, additional_ID_heading_h, _ = self.measure_text(heading_font, "Hpqy")
 			additional_ID_heading_x = (individual_mouse_canvas_images_only.width - additional_ID_heading_w) // 2
-			additional_ID_heading_y = ID_heading_bottom + gap_after_ID_heading + additional_baseline_offset
-			ID_heading_bottom = additional_ID_heading_y + additional_ID_heading_h
+			additional_ID_heading_y = bottom_pixel + gap_after_ID_heading + additional_baseline_offset
+			bottom_pixel = additional_ID_heading_y + additional_ID_heading_h + gap_after_ID_heading
 
 
 		# Create OD and OS text (but not draw yet)
@@ -2112,11 +2215,24 @@ class ImageCompilation:
 		od_w, od_h, od_offset = self.measure_text(subheading_font, "OD")
 		od_x = (self.image_width - od_w) // 2
 		os_x = od_x + self.image_width
-		od_y = ID_heading_bottom + gap_after_ID_heading
-		os_y = od_y
+		od_y, os_y = bottom_pixel, bottom_pixel
+		bottom_pixel = bottom_pixel + od_h + gap_after_od_os
 		
+		
+		# Create date names (but not draw yet)
+		if self.settings['date_order']:
+			dates_and_location = []
+			for i, date in enumerate(self.settings['date_order']):
+				w, _, offset = self.measure_text(subheading_font, date)
+				_, h, _ = self.measure_text(subheading_font, "Hpqy")
+				x = ((self.image_width - w) // 2) + (self.image_width * i)
+				y = bottom_pixel
+				dates_and_location.append((date, x, y, offset))
+			bottom_pixel = bottom_pixel + h + gap_after_od_os*2
+
+
 		# Create new canvas with heading area
-		self.total_heading_height = od_y + od_h + gap_after_od_os
+		self.total_heading_height = bottom_pixel
 		new_height = individual_mouse_canvas_images_only.height + self.total_heading_height
 		new_width = individual_mouse_canvas_images_only.width
 		new_canvas = Image.new("RGB", (new_width, new_height), color=self.settings['background_color'])
@@ -2142,6 +2258,10 @@ class ImageCompilation:
 		elif eye_configuration == "OS":
 			draw.text((od_x, od_y + od_offset), 
 				"OS", font=subheading_font, fill=self.settings['text_color'])
+		if self.settings['date_order']:
+			for date_and_location in dates_and_location:	
+				date, x, y, offset = date_and_location
+				draw.text((x, y, offset), date, font=subheading_font, fill=self.settings['text_color'])
 
 
 		x_offset_od = 0
@@ -2161,87 +2281,113 @@ class ImageCompilation:
 		# Add the images to the mouse canvas
 		for eye, cslo_and_oct_image_list in self.mouse_image_list[mouse_id].items():
 			for image_modality in self.image_type_objects:	# Loops through the images the user selected they wanted (i.e. BAF, IRAF, horizontal, etc.)
-				image_path_to_use = None
 
 				# Skip OD or OS if user specified
 				if eye_configuration == "OD" and eye == "OS":
 					continue
 				elif eye_configuration == "OS" and eye == "OD":
 					continue
-				
-				available_image_paths = cslo_and_oct_image_list[image_modality.imager]	# All paths for that imager and eye
-				
 
-				# -- Defining the image path --
-				only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
-				# If there aren't any images from that imager (cslo/oct)
-				if not available_image_paths:
+				
+				def insert_one_image(date):
 					image_path_to_use = None
 
-				# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
-				elif only_one_image_exists:
-					for image_path in available_image_paths:
-						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
-						if modality == image_modality.image_type_name:
-							image_path_to_use = image_path
-							break
+					available_images = [
+						img for img in cslo_and_oct_image_list[image_modality.imager]
+						if img["date"] == date or date == ""
+					]
 
-				else:
-					# Create a list of all paths with the modality of interest
-					image_paths_with_same_modality = []
-					for image_path in available_image_paths:
-						_, image_number, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
-						if modality == image_modality.image_type_name:
-							image_paths_with_same_modality.append((int(image_number), image_path))
-					image_paths_with_same_modality.sort(key=lambda x: x[0])	# Sorting the list by image_number
-					image_paths_with_same_modality = [x[1] for x in image_paths_with_same_modality]	# Making the list just image_path
+					# -- Defining the image path --
+					only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
+
+					# If there aren't any images from that imager (cslo/oct)
+					if not available_images:
+						image_path_to_use = None
+
+					# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
+					elif only_one_image_exists:
+						for image in available_images:
+							image_path = image["path"]
+							_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
+							if modality == image_modality.image_type_name:
+								image_path_to_use = image_path
+								break
+
+					else:
+						# Create a list of all paths with the modality of interest
+						image_paths_with_same_modality = []
+						for image in available_images:
+							image_path = image["path"]
+							_, image_number, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
+							if modality == image_modality.image_type_name:
+								image_paths_with_same_modality.append((int(image_number), image_path))
+						image_paths_with_same_modality.sort(key=lambda x: x[0])	# Sorting the list by image_number
+						image_paths_with_same_modality = [x[1] for x in image_paths_with_same_modality]	# Making the list just image_path
 
 
-					# If we just need to grab the nth image with that modality
-					if image_modality.multiple_index is not None:
-						index_to_use = image_modality.multiple_index
+						# If we just need to grab the nth image with that modality
+						if image_modality.multiple_index is not None:
+							index_to_use = image_modality.multiple_index
+						
+							# Grab the image with the correct index, unless it can't, then don't use any image
+							try:
+								image_path_to_use = image_paths_with_same_modality[index_to_use]
+								#selected_image = image_paths_with_same_modality[index_to_use]
+								#image_path_to_use = selected_image["path"]
+							except IndexError:
+								image_path_to_use = None
+
+						# If the user needs to select the image
+						elif image_modality.select_required:
+							if image_paths_with_same_modality and self.mode == "full":
+								dialog_title = (f"{mouse_id} {eye} - {image_modality.image_type_name}")
+								image_path_to_use = user_choose_which_images_to_use(image_paths_with_same_modality, dialog_title)
+							else:
+								image_path_to_use = None
 					
-						# Grab the image with the correct index, unless it can't, then don't use any image
-						try:
-							image_path_to_use = image_paths_with_same_modality[index_to_use]
-						except IndexError:
-							image_path_to_use = None
 
-					# If the user needs to select the image
-					elif image_modality.select_required:
-						if image_paths_with_same_modality and self.mode == "full":
-							dialog_title = (f"{mouse_id} {eye} - {image_modality.image_type_name}")
-							image_path_to_use = user_choose_which_images_to_use(image_paths_with_same_modality, dialog_title)
-						else:
-							image_path_to_use = None
+					# -- Putting the image into the individual mouse canvas --
+					if image_path_to_use:
+						img = Image.open(image_path_to_use)
+						# Crop image
+						if image_modality.imager == "cslo" and self.settings['crop_cslo_text_bool']:
+							img = crop_cslo_image(img)
+						elif image_modality.imager == "oct" and self.settings['oct_crop_bool']:
+							img = crop_oct_image(img)
+					# Insert black box if no image present
+					else:
+						if image_modality.imager == "cslo":
+							w, h = self.cslo_width, self.cslo_height
+						elif image_modality.imager == "oct":
+							w, h = self.oct_width, self.oct_height
+						img = Image.new("RGB", (w, h), color="black")
+
+						if self.mode == "preview_layout_and_images" and image_modality.select_required:
+							draw = ImageDraw.Draw(img)
+							text = "No preview available"
+							font = ImageFont.load_default(size=60)
+							text_w, text_h, baseline_offset = self.measure_text(font, text)
+							x = (w - text_w) / 2
+							y = (h - text_h) / 2
+							draw.text((x, y+baseline_offset), text, font=font, fill="white")
+
+						
+
+
+					# Resizing if needed
+					if img.width != self.image_width:
+						new_width = self.image_width
+						w, h = img.size
+						aspect_ratio = h / w
+						new_height = int(new_width * aspect_ratio)
+						img = img.resize((new_width, new_height), Image.LANCZOS)
+
+					return(img)
+
+					
 				
 
-				# -- Putting the image into the individual mouse canvas --
-				if image_path_to_use:
-					img = Image.open(image_path_to_use)
-					# Crop image
-					if image_modality.imager == "cslo" and self.settings['crop_cslo_text_bool']:
-						img = crop_cslo_image(img)
-					elif image_modality.imager == "oct" and self.settings['oct_crop_bool']:
-						img = crop_oct_image(img)
-				# Insert black box if no image present
-				else:
-					if image_modality.imager == "cslo":
-						w, h = self.cslo_width, self.cslo_height
-					elif image_modality.imager == "oct":
-						w, h = self.oct_width, self.oct_height
-					img = Image.new("RGB", (w, h), color="black")
 
-					if self.mode == "preview_layout_and_images" and image_modality.select_required:
-						draw = ImageDraw.Draw(img)
-						text = "No preview available"
-						font = ImageFont.load_default(size=60)
-						text_w, text_h, baseline_offset = self.measure_text(font, text)
-						x = (w - text_w) / 2
-						y = (h - text_h) / 2
-						draw.text((x, y+baseline_offset), text, font=font, fill="white")
-
-					
 				# Setting x, y offsets
 				if eye == "OD" or eye_configuration == "OS":
 					x_offset = x_offset_od
@@ -2250,17 +2396,21 @@ class ImageCompilation:
 					x_offset = x_offset_os
 					y_offset = y_offset_os
 
-				# Resizing if needed
-				if img.width != self.image_width:
-					new_width = self.image_width
-					w, h = img.size
-					aspect_ratio = h / w
-					new_height = int(new_width * aspect_ratio)
-					img = img.resize((new_width, new_height), Image.LANCZOS)
+				# If there are no dates specified
+				if not self.settings['date_order']:
+					date = ""
+					img = insert_one_image(date)
+					# Pasting img into canvas
+					individual_mouse_canvas.paste(img, (x_offset, y_offset))
+				# If dates are specified
+				else:
+					for date in self.settings['date_order']:
+						img = insert_one_image(date)
+						individual_mouse_canvas.paste(img, (x_offset, y_offset))
+						x_offset += img.width
 
-				# Pasting img into canvas
-				individual_mouse_canvas.paste(img, (x_offset, y_offset))
-				
+
+
 				# Adjusting offsets
 				if eye == "OD" or eye_configuration == "OS":
 					y_offset_od += img.height
@@ -2269,7 +2419,52 @@ class ImageCompilation:
 
 
 
+
 		return individual_mouse_canvas
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############################################################################################################################################
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 	# ====================================================
 	# CANVAS AND LAYOUT
@@ -2439,8 +2634,6 @@ class ImageCompilation:
 			original_x_offset = x_offset
 			right_most_pixel = x_offset
 
-			print
-
 			for mouse in mouse_list:
 				# Inserting image type titles on the far left
 				if column_count == 0:
@@ -2467,6 +2660,7 @@ class ImageCompilation:
 					right_most_pixel = mouse_element.right
 
 				status(f"Processing mouse canvases: {i}/{number_of_mice}")
+				i += 1
 			
 			bottom_pixel = mouse_element.bottom
 			return(right_most_pixel, bottom_pixel)
@@ -2585,7 +2779,7 @@ class ImageCompilation:
 
 		# 3. Determine size of individual mouse canvas
 		# Initializing individual mouse canvas creation to determine heading size (self.total_heading_height)
-		example_mouse_number = list(self.mouse_image_list.keys())[0]
+		example_mouse_number = next(iter(self.mouse_image_list))
 		_ = self.assemble_mouse_image_grid(example_mouse_number, "initiate heading")
 
 		
