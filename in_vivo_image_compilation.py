@@ -72,11 +72,9 @@ An extra optional dialog box with additional settings such as:
 	Margin size
 	Background and text color
 	Text size
-Add scroll bar to various windows
 With multiple dates, center the "OD" or "OS" over all of them
 Create the Separate OD/OS function 
 Add lines in between groups
-Create a "use previous settings" setting
 	
 Updates you should consider including:
 Make margins proportional to images
@@ -1573,7 +1571,7 @@ def user_defined_settings():
 			folder_label = tk.Label(self, text="Save to folder:")
 			folder_label.grid(row=0, column=0, padx=5, sticky='w')
 
-			self.folder_entry = tk.Entry(self, width=40)
+			self.folder_entry = tk.Entry(self, width=60)
 			self.folder_entry.grid(row=0, column=1, padx=5)
 			self.folder_entry.bind("<KeyRelease>", self.check_directory)
 
@@ -1583,7 +1581,7 @@ def user_defined_settings():
 			file_label = tk.Label(self, text="File name:")
 			file_label.grid(row=1, column=0, padx=5, sticky='w')
 
-			self.file_entry = tk.Entry(self, width=40)
+			self.file_entry = tk.Entry(self, width=60)
 			self.file_entry.grid(row=1, column=1, padx=5)
 			self.file_entry.insert(0, "in_vivo_image_compilation")
 
@@ -1801,23 +1799,94 @@ def user_defined_settings():
 
 
 
+	# Create main window
 	root = tk.Tk()
 	root.title("Settings")
 	root.protocol("WM_DELETE_WINDOW", on_close_window)
+
+	# Allow the root window to expand properly
 	root.columnconfigure(0, weight=1)
 	root.rowconfigure(0, weight=1)
 
 
-	directory_frame = DirectoryFrame(root)
-	number_of_mice_frame = NumberOfMiceFrame(root)
-	mouse_info_frame = MouseInfoFrame(root)
-	title_frame = TitleFrame(root)
-	row_col_frame = RowColumnFrame(root)
-	number_and_cslo_crop_frame = NumberAndCsloCropFrame(root)
-	oct_crop_frame = OctCropFrame(root)
-	images_to_use_frame = ImagesToUseFrame(root)
-	save_location_frame = SaveLocationFrame(root)
-	confirmation_frame = ConfirmationFrame(root)
+	# --- Scrollable container setup ---
+	# Container holds canvas + optional scrollbar
+	container = tk.Frame(root)
+	container.grid(row=0, column=0, sticky="nsew")
+	container.columnconfigure(0, weight=1)
+	container.rowconfigure(0, weight=1)
+
+	# Canvas provides scrolling capability
+	canvas = tk.Canvas(container, highlightthickness=0)
+	canvas.grid(row=0, column=0, sticky="nsew")
+
+	# Vertical scrollbar (not shown initially)
+	scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+	canvas.configure(yscrollcommand=scrollbar.set)
+
+	# Frame that holds all actual dialog content
+	scrollable_frame = tk.Frame(canvas)
+
+	# Embed the content frame inside the canvas
+	canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+	canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+
+
+	# --- Scroll logic ---
+	# Update the scrollable region whenever content size changes
+	def on_frame_configure(event):
+		# Update scrolling region
+		canvas.configure(scrollregion=canvas.bbox("all"))
+
+		# Make canvas width match content width
+		content_width = scrollable_frame.winfo_reqwidth()
+		canvas.itemconfigure(canvas_window, width=content_width)
+		canvas.configure(width=content_width)
+
+		maybe_enable_scrollbar()
+
+
+	scrollable_frame.bind("<Configure>", on_frame_configure)
+
+	# Calculate maximum allowed height
+	screen_height = root.winfo_screenheight()
+	max_height = int(screen_height * 0.85)
+
+	def maybe_enable_scrollbar():
+		# Height the content *wants* to be
+		content_height = scrollable_frame.winfo_reqheight()
+
+		if content_height > max_height:
+			# Lock canvas height and enable scrollbar
+			canvas.config(height=max_height)
+			if not scrollbar.winfo_ismapped():
+				scrollbar.grid(row=0, column=1, sticky="ns")
+		else:
+			# Let canvas size naturally and hide scrollbar
+			canvas.config(height=content_height)
+			if scrollbar.winfo_ismapped():
+				scrollbar.grid_forget()
+
+
+	# --- Mouse wheel support (scoped to the canvas) ---
+	def _on_mousewheel(event):
+		canvas.yview_scroll(-1 * (event.delta // 120), "units")
+	canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+	canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+
+
+
+	directory_frame = DirectoryFrame(scrollable_frame)
+	number_of_mice_frame = NumberOfMiceFrame(scrollable_frame)
+	mouse_info_frame = MouseInfoFrame(scrollable_frame)
+	title_frame = TitleFrame(scrollable_frame)
+	row_col_frame = RowColumnFrame(scrollable_frame)
+	number_and_cslo_crop_frame = NumberAndCsloCropFrame(scrollable_frame)
+	oct_crop_frame = OctCropFrame(scrollable_frame)
+	images_to_use_frame = ImagesToUseFrame(scrollable_frame)
+	save_location_frame = SaveLocationFrame(scrollable_frame)
+	confirmation_frame = ConfirmationFrame(scrollable_frame)
 
 	directory_frame.pack(anchor='w')
 	number_of_mice_frame.pack(anchor='w')
