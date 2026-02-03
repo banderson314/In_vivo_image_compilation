@@ -36,9 +36,7 @@ def status(msg):
 
 status("Importing packages")
 import tkinter as tk
-from tkinter import filedialog
-from tkinter import ttk
-from tkinter import messagebox
+from tkinter import filedialog, ttk, messagebox
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Optional, Tuple, Literal, ClassVar
@@ -48,6 +46,7 @@ import os
 import pandas as pd
 import numpy as np
 import cv2
+import json
 from PIL import Image, ImageDraw, ImageFont, ImageTk, UnidentifiedImageError
 import warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
@@ -69,24 +68,27 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 """
 Things left to do:
-Allow for multiple dates
 An extra optional dialog box with additional settings such as:
 	Margin size
 	Background and text color
 	Text size
-
+Add scroll bar to various windows
+With multiple dates, center the "OD" or "OS" over all of them
+Create the Separate OD/OS function 
+Add lines in between groups
+Create a "use previous settings" setting
 	
 Updates you should consider including:
 Make margins proportional to images
 Text should also be made proportional to images (for now I'm just making OCT images bigger). When fixed, remove the line that says #self.image_width = 640
 Click on images to allow you to manually change them
-Do we want to have the OD/OS text if only one eye is used?
+Make a button that adds all available image types
 
 
 Bugs:
-Check: if you have created groups and then decide to get rid of them, it still acts like it has groups
 
 """
+
 
 
 
@@ -300,6 +302,42 @@ def user_defined_settings():
 		def on_date_entry_change(self, event):
 			return
 
+		def delete_all_entries(self):
+			for row in self.rows:
+				for widget_key in ['entry', 'cslo_cb', 'oct_cb', 'button', 'date_entry']:
+					row[widget_key].grid_forget()
+			self.rows.clear()
+			self.add_row()
+
+		def populate_info_from_previous_settings(self, directory_info):
+			directory, imager, date = directory_info
+
+			# Find the last row (should be empty)
+			row = self.rows[-1]
+
+			# Set directory path
+			row['entry'].delete(0, tk.END)
+			row['entry'].insert(0, directory)
+			self.on_entry_change(event=type('Event', (), {'widget': row['entry']})())
+
+			# Set imager checkbox
+			if imager == "cslo":
+				row['cslo_var'].set(True)
+				row['oct_var'].set(False)
+			elif imager == "oct":
+				row['oct_var'].set(True)
+				row['cslo_var'].set(False)
+
+			# Set date (respect placeholder behavior)
+			row['date_entry'].delete(0, tk.END)
+			if date:
+				row['date_entry'].insert(0, date)
+				row['date_entry'].config(fg="black")
+			else:
+				row['date_entry'].insert(0, self.placeholder_text)
+				row['date_entry'].config(fg="grey")
+
+
 		def get_data(self):
 			directories = []
 			for row in self.rows:
@@ -316,7 +354,7 @@ def user_defined_settings():
 						if date == 'date':
 							date = ""
 
-						directories.append((path, image_type, date))
+						directories.append([path, image_type, date])
 			
 			return {"directories": directories}
 
@@ -635,7 +673,7 @@ def user_defined_settings():
 		def determine_cslo_labID_number(self):
 			# Get a list of directories that have cSLO images
 			data_dic = directory_frame.get_data()
-			available_directories = data_dic["directories"]	# Will be a list of tuples: (directory, "cslo"/"oct", date)
+			available_directories = data_dic["directories"]	# Will be a list of lists: [directory, "cslo"/"oct", date]
 			cslo_directories = []
 			for directory, image_type, date in available_directories:
 				if image_type == "cslo":
@@ -812,6 +850,43 @@ def user_defined_settings():
 			self.group_order, self.date_order = dialog.get_result()
 
 
+		def populate_info_from_previous_settings(self, mouse_info_dic, group_order, date_order):
+			"""
+			mouse_info_dic: {cSLO_number: [Lab ID, Group]}
+			group_order: list of groups in desired order
+			date_order: list of dates in desired order
+			"""
+
+			if self.df.empty:
+				return
+
+			# Fill Lab ID / Group or mark as excluded
+			for idx, row in self.df.iterrows():
+				cslo_num = row["cSLO number"]
+
+				if cslo_num in mouse_info_dic:
+					lab_id, group = mouse_info_dic[cslo_num]
+
+					self.df.at[idx, "Lab ID"] = lab_id
+					self.df.at[idx, "Group"] = group
+					self.df.at[idx, "Exclude images"] = False
+				else:
+					# Mouse not present in previous settings = exclude
+					self.df.at[idx, "Exclude images"] = True
+
+			# Restore group & date order
+			self.group_order = list(group_order) if group_order else []
+			self.date_order = list(date_order) if date_order else []
+
+			# Update displayed mouse count
+			number_of_mice_frame.update_mouse_number(
+				self.count_included_mice()
+			)
+			if self.group_order:
+				largest_group_size = self.df['Group'].value_counts().max()
+				row_col_frame.update_numbers(largest_group_size)
+
+
 
 		def get_data(self):
 			self.df_to_export = self.df
@@ -822,9 +897,9 @@ def user_defined_settings():
 			# Remove any mice that were marked to be excluded
 			self.df_to_export = self.df_to_export[self.df_to_export["Exclude images"] != True]
 
-			# Create dictionary with cSLO numbers (key) and [Lab ID, cage, group]
+			# Create dictionary with cSLO numbers (key) and [Lab ID, group]
 			mouse_info_dic = {
-				row["cSLO number"]: (row["Lab ID"], row["Group"])
+				row["cSLO number"]: [row["Lab ID"], row["Group"]]
 				for _, row in self.df_to_export.iterrows()
 			}
 
@@ -874,12 +949,17 @@ def user_defined_settings():
 			self.subtitle_entry.insert(0, today_str)
 			self.subtitle_entry.grid(row=1, column=1, padx=5, pady=0, sticky="we")
 
+		def populate_info_from_previous_settings(self, title, subtitle):
+			self.title_entry.delete(0, tk.END)
+			self.title_entry.insert(0, title)
+			self.subtitle_entry.delete(0, tk.END)
+			self.subtitle_entry.insert(0, subtitle)
+
 		def get_data(self):
 			return {
 				"document_title": self.title_entry.get(),
 				"subtitle": self.subtitle_entry.get()
 			}
-				
 
 
 	class RowColumnFrame(tk.Frame):
@@ -915,7 +995,7 @@ def user_defined_settings():
 
 
 			# Arrange groups
-			group_label = tk.Label(self, text="Arrage groups:")
+			group_label = tk.Label(self, text="Arrange groups:")
 			group_label.grid(row=0, column=4, padx=5)
 
 			self.group_arrangment_option = tk.StringVar(value="vertical")
@@ -979,6 +1059,12 @@ def user_defined_settings():
 			except ValueError:
 				self.row_entry.delete(0, tk.END)
 
+		def populate_info_from_previous_settings(self, number_of_rows, number_of_columns, group_arrangment):
+			self.row_entry.delete(0, tk.END)
+			self.row_entry.insert(0, str(number_of_rows))
+			self.column_entry.delete(0, tk.END)
+			self.column_entry.insert(0, str(number_of_columns))
+			self.group_arrangment_option.set(group_arrangment)
 		
 		def get_data(self):
 			return {
@@ -1027,6 +1113,14 @@ def user_defined_settings():
 			crop_cslo_text_cb = tk.Checkbutton(self, text="Crop the text off of cSLO images",
 											variable=self.crop_cslo_text_var)
 			crop_cslo_text_cb.grid(row=1, column=0, columnspan=3, padx=5, pady=0, sticky="w")
+
+		def populate_info_from_previous_settings(self, cslo_number_bool, labID_bool, crop_cslo_text_bool, use_od_bool, use_os_bool):
+			self.cslo_number_var.set(cslo_number_bool)
+			self.labID_var.set(labID_bool)
+			self.crop_cslo_text_var.set(crop_cslo_text_bool)
+			self.od_var.set(use_od_bool)
+			self.os_var.set(use_os_bool)
+
 
 		def get_data(self):
 			self.cslo_number_bool = self.cslo_number_var.get()
@@ -1133,6 +1227,13 @@ def user_defined_settings():
 				self.oct_crop_entry.delete(0, tk.END)
 
 
+		def populate_info_from_previous_settings(self, oct_height, oct_crop_bool):
+			self.oct_crop_var.set(oct_crop_bool)
+			if oct_crop_bool:
+				self.oct_crop_entry.config(state="normal")
+				self.oct_crop_entry.delete(0, tk.END)
+				self.oct_crop_entry.insert(0, str(oct_height))
+
 
 		def get_data(self):
 			oct_height = self.oct_crop_entry.get()
@@ -1175,7 +1276,6 @@ def user_defined_settings():
 			# Selected list (container with draggable rows)
 			selected_frame = tk.Frame(main_frame)
 			selected_frame.grid(row=0, column=1, sticky="nsew")
-			#selected_frame.rowconfigure(1, weight=1)
 
 			tk.Label(selected_frame, text="Selected images (rename or reorder)").grid(row=0, column=0, sticky="w")
 			self.selected_frame = tk.Frame(selected_frame)
@@ -1197,6 +1297,7 @@ def user_defined_settings():
 					image_files = [
 						f for f in os.listdir(directory)
 						if os.path.isfile(os.path.join(directory, f))
+						and not f.startswith(".")
 						and os.path.splitext(f)[1].lower() in image_extensions
 					]
 					for image_file in image_files:
@@ -1210,7 +1311,7 @@ def user_defined_settings():
 					for subdir, dirs, files in os.walk(directory):
 						if os.path.basename(subdir) in {"OD", "OS"}:
 							for f in files:
-								if os.path.splitext(f)[1].lower() in image_extensions:
+								if not f.startswith(".") and os.path.splitext(f)[1].lower() in image_extensions:
 									image_files.append(f)
 					
 					cslo_images_dic = {}
@@ -1268,8 +1369,9 @@ def user_defined_settings():
 
 			# Insert items that are not yet selected
 			for item in self.available_image_types:
-				if item not in selected_originals:
+				if item not in selected_originals or "[select]" in item:
 					self.available_listbox.insert(tk.END, item)
+
 
 			# Adjust height
 			num_items = self.available_listbox.size()
@@ -1435,6 +1537,31 @@ def user_defined_settings():
 			return None
 
 
+		def populate_info_from_previous_settings(self, images_to_use):
+			# Clear existing selections
+			for frame, _ in self.rows:
+				frame.destroy()
+			self.rows.clear()
+			self.selected_image_types.clear()
+
+			# Add each previous image selection
+			for orig_name, custom_name in images_to_use:
+				self.selected_image_types.append((orig_name, custom_name))
+				self.add_label_row(orig_name)
+
+				# After add_label_row, update the entry box to match custom_name
+				for frame, selection in self.rows:
+					if selection == orig_name:
+						# The entry box is the 3rd column widget
+						entry_widget = frame.grid_slaves(row=0, column=2)[0]
+						entry_widget.delete(0, tk.END)
+						entry_widget.insert(0, custom_name)
+						break
+
+			# Refresh available list to remove duplicates
+			self.refresh_available_list()
+
+
 		def get_data(self):
 			return {"images_to_use": self.selected_image_types}
 
@@ -1463,9 +1590,6 @@ def user_defined_settings():
 			file_type_label = tk.Label(self, text=".jpg")
 			file_type_label.grid(row=1, column=2, padx=2, sticky='w')
 
-			#match_title_button = tk.Button(self, text="Match title", command=self.update_file_name)
-			#match_title_button.grid(row=1, column=3, padx=2, sticky='w')
-
 	
 
 		def choose_directory(self):
@@ -1489,6 +1613,14 @@ def user_defined_settings():
 			self.file_entry.insert(0, title)
 			self.check_directory()
 	
+		def populate_info_from_previous_settings(self, file_path, file_name):
+			file_directory = os.path.dirname(file_path)
+			file_name, _ = os.path.splitext(file_name)
+			self.folder_entry.delete(0, tk.END)
+			self.folder_entry.insert(0, file_directory)
+			self.file_entry.delete(0, tk.END)
+			self.file_entry.insert(0, file_name)
+
 		def get_data(self):
 			save_directory = self.folder_entry.get()
 			if os.path.exists(save_directory):
@@ -1510,23 +1642,25 @@ def user_defined_settings():
 		def __init__(self, parent):
 			super().__init__(parent)
 			
-			# Preview layout
+			previous_settings_button = tk.Button(self, text="Use previous settings",
+										command=self.use_previous_settings)
+			previous_settings_button.grid(row=0, column=0, padx=5)
+
 			preview_layout_button = tk.Button(self, text="Preview layout", 
 									 command=self.preview_layout)
-			preview_layout_button.grid(row=0, column=0, padx=5)
+			preview_layout_button.grid(row=0, column=1, padx=5)
 
-			# Preview layout + images
 			preview_layout_images_button = tk.Button(self, text="Preview layout & images",
 											command=self.preview_layout_and_images)
-			preview_layout_images_button.grid(row=0, column=1, padx=5)
+			preview_layout_images_button.grid(row=0, column=2, padx=5)
 
-			# Okay button
 			okay_button = tk.Button(self, text="Okay", command=self.on_ok_click)
-			okay_button.grid(row=0, column=2, padx=5)
+			okay_button.grid(row=0, column=3, padx=5)
 
-			# Settings button
 			settings_button = tk.Button(self, text="Print Settings", command=self.grab_settings)
-			settings_button.grid(row=0, column=3, padx=5)
+			settings_button.grid(row=0, column=4, padx=5)
+
+			self.PREVIOUS_SETTINGS_FILE = "previous_settings.json"
 
 
 		def collect_settings(self):
@@ -1574,8 +1708,66 @@ def user_defined_settings():
 			return True
 
 
-
+		def use_previous_settings(self):
+			# Reading the previous_settings.json file
+			try:
+				with open(self.PREVIOUS_SETTINGS_FILE, "r", encoding="utf-8") as f:
+					previous_settings = json.load(f)
+			except FileNotFoundError:
+				messagebox.showerror(
+					title="Settings not found",
+					message="previous_settings.json is not found.\nClicking \"Okay\" will create this file."
+				)
+				return None
 			
+
+			directory_frame.delete_all_entries()
+			directories = previous_settings['directories']
+			for directory_info in directories:
+				directory_frame.populate_info_from_previous_settings(directory_info)
+
+			mouse_info_frame.populate_info_from_previous_settings(
+				previous_settings['mouse_info_dic'],
+				previous_settings['group_order'], 
+				previous_settings['date_order']
+			)
+
+			title_frame.populate_info_from_previous_settings(
+				previous_settings['document_title'], 
+				previous_settings['subtitle']
+			)
+
+			row_col_frame.populate_info_from_previous_settings(
+				previous_settings['number_of_rows'],
+				previous_settings['number_of_columns'],
+				previous_settings['arrange_groups']
+			)
+
+			number_and_cslo_crop_frame.populate_info_from_previous_settings(
+				previous_settings['cslo_number_bool'],
+				previous_settings['labID_bool'],
+				previous_settings['crop_cslo_text_bool'],
+				previous_settings['use_od_bool'],
+				previous_settings['use_os_bool']
+			)
+
+			oct_crop_frame.populate_info_from_previous_settings(
+				previous_settings['oct_height'],
+				previous_settings['oct_crop_bool']
+			)
+
+			images_to_use_frame.populate_info_from_previous_settings(
+				previous_settings['images_to_use']
+			)
+
+			save_location_frame.populate_info_from_previous_settings(
+				previous_settings['final_product_file_path'],
+				previous_settings['file_name']
+			)
+
+
+
+		
 		def preview_layout(self):
 			self.collect_settings()
 			if self.check_if_sufficient_information():
@@ -1592,12 +1784,19 @@ def user_defined_settings():
 			self.collect_settings()
 			if self.check_if_sufficient_information(final=True):
 				root.destroy()
+			
+			with open(self.PREVIOUS_SETTINGS_FILE, "w", encoding="utf-8") as f:
+				json.dump(self.settings, f, indent=4)
 
 		def grab_settings(self):
 			self.collect_settings()
 			print("")
 			for key, value in self.settings.items():
 				print(f"{key}: {value}")
+
+			
+			with open(self.PREVIOUS_SETTINGS_FILE, "w", encoding="utf-8") as f:
+				json.dump(self.settings, f, indent=4)
 
 
 
