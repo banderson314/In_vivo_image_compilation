@@ -678,7 +678,10 @@ def user_defined_settings():
 					cslo_directories.append(directory)
 			
 			if len(cslo_directories) == 0:
-				status("No cSLO directories found")
+				messagebox.showerror(
+					title="No cSLO images",
+					message="No cSLO images are detected"
+				)
 				return
 			
 			# Going through the cSLO image directories and grabbing the information from the images and putting it in the df
@@ -1390,8 +1393,19 @@ def user_defined_settings():
 			
 			value = self.available_listbox.get(selection[0])
 			self.available_listbox.delete(selection[0])
+
+			# Make [select] items unique by appending a number
+			if value.endswith(" [select]"):
+				base = value
+				existing = [
+					orig for orig, _ in self.selected_image_types
+					if orig.startswith(base + " ")
+				]
+				value = f"{base} {len(existing) + 1}"
+
 			self.selected_image_types.append((value, value))  # (original, current/custom)
 			self.add_label_row(value)
+
 
 			# Refresh available list to update height and scrollbar
 			self.refresh_available_list()
@@ -1417,20 +1431,22 @@ def user_defined_settings():
 			remove_btn.grid(row=0, column=3, padx=(2,0), pady=0)
 
 
-			# Determining initial custom name
+			# -- Determining initial custom name --
 			custom_name = selection
 			if custom_name[:5] == "cSLO ":
 				custom_name = custom_name[5:]
 			elif custom_name[:4] == "OCT ":
 				custom_name = custom_name[4:]
-			if custom_name[-9:] == " [select]":
-				custom_name = custom_name[:-9]
+			# Remove [select] and any trailing number
+			custom_name = re.sub(r" \[select\]( \d+)?$", "", custom_name)
+
+			# Remove any ordinal suffix like (1st), (2nd)
 			ordinal_format = r" \(\d+(st|nd|rd|th)\)$"
 			custom_name = re.sub(ordinal_format, "", custom_name)
 			custom_name = custom_name[0].upper() + custom_name[1:]
 
 			image_type_name_var = tk.StringVar(value=custom_name)
-			entry_box = tk.Entry(frame, textvariable=image_type_name_var, width=15)
+			entry_box = tk.Entry(frame, textvariable=image_type_name_var, width=18)
 			entry_box.grid(row=0, column=2, padx=(5,0))
 
 			# Update self.selected_image_types when entry changes
@@ -1723,24 +1739,20 @@ def user_defined_settings():
 			directories = previous_settings['directories']
 			for directory_info in directories:
 				directory_frame.populate_info_from_previous_settings(directory_info)
-
 			mouse_info_frame.populate_info_from_previous_settings(
 				previous_settings['mouse_info_dic'],
 				previous_settings['group_order'], 
 				previous_settings['date_order']
 			)
-
 			title_frame.populate_info_from_previous_settings(
 				previous_settings['document_title'], 
 				previous_settings['subtitle']
 			)
-
 			row_col_frame.populate_info_from_previous_settings(
 				previous_settings['number_of_rows'],
 				previous_settings['number_of_columns'],
 				previous_settings['arrange_groups']
 			)
-
 			number_and_cslo_crop_frame.populate_info_from_previous_settings(
 				previous_settings['cslo_number_bool'],
 				previous_settings['labID_bool'],
@@ -1748,16 +1760,13 @@ def user_defined_settings():
 				previous_settings['use_od_bool'],
 				previous_settings['use_os_bool']
 			)
-
 			oct_crop_frame.populate_info_from_previous_settings(
 				previous_settings['oct_height'],
 				previous_settings['oct_crop_bool']
 			)
-
 			images_to_use_frame.populate_info_from_previous_settings(
 				previous_settings['images_to_use']
 			)
-
 			save_location_frame.populate_info_from_previous_settings(
 				previous_settings['final_product_file_path'],
 				previous_settings['file_name']
@@ -1782,19 +1791,18 @@ def user_defined_settings():
 			self.collect_settings()
 			if self.check_if_sufficient_information(final=True):
 				root.destroy()
-			
-			with open(self.PREVIOUS_SETTINGS_FILE, "w", encoding="utf-8") as f:
-				json.dump(self.settings, f, indent=4)
+				with open(self.PREVIOUS_SETTINGS_FILE, "w", encoding="utf-8") as f:
+					json.dump(self.settings, f, indent=4)
 
 		def grab_settings(self):
 			self.collect_settings()
 			print("")
 			for key, value in self.settings.items():
 				print(f"{key}: {value}")
-
-			
 			with open(self.PREVIOUS_SETTINGS_FILE, "w", encoding="utf-8") as f:
 				json.dump(self.settings, f, indent=4)
+
+
 
 
 
@@ -2083,12 +2091,11 @@ class ImageCompilation:
 			if match:
 				multiple_index = int(match.group(1)) - 1
 				remainder = re.sub(ordinal_pattern, "", remainder)
-
+			
 			# Check for "[select]" tag
-			if remainder.endswith(" [select]"):
+			if "[select]" in remainder:
 				select_required = True
-				remainder = remainder[:-9]
-
+				remainder = remainder.split("[select]")[0]
 			return cls(
 				imager=imager.lower(),
 				image_type_name=remainder.strip(),
@@ -2608,7 +2615,7 @@ class ImageCompilation:
 						# If the user needs to select the image
 						elif image_modality.select_required:
 							if image_paths_with_same_modality and self.mode == "full":
-								dialog_title = (f"{mouse_id} {eye} - {image_modality.image_type_name}")
+								dialog_title = (f"{mouse_id} {eye} - {image_modality.custom_name}")
 								image_path_to_use = user_choose_which_images_to_use(image_paths_with_same_modality, dialog_title)
 							else:
 								image_path_to_use = None
