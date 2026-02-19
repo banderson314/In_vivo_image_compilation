@@ -16,5 +16,4 @@ OCT Images
 
 These folder and file naming conventions are consistent with the companion scripts Convert_OCT_files_to_TIF and cSLO_image_download.
 
-Notes
 This tool was developed primarily for, but is not limited to, mouse research. As a result, several variable names include “mouse” or “mice.”
