@@ -1674,7 +1674,20 @@ def user_defined_settings():
 			settings_button = tk.Button(self, text="Print Settings", command=self.grab_settings)
 			settings_button.grid(row=0, column=4, padx=5)
 
-			self.PREVIOUS_SETTINGS_FILE = "previous_settings.json"
+			self.PREVIOUS_SETTINGS_FILE = self.get_settings_path("In vivo image compilation")
+
+
+		def get_settings_path(self, app_name):
+			"""Return the full cross-platform path to previous_settings.json and create folder if needed."""
+			if os.name == "nt":  # Windows
+				base_dir = os.getenv("APPDATA")
+			else:  # macOS / Linux
+				base_dir = os.path.join(os.path.expanduser("~"), ".config")
+
+			app_dir = os.path.join(base_dir, app_name)
+			os.makedirs(app_dir, exist_ok=True)  # Ensure the folder exists
+
+			return os.path.join(app_dir, "previous_settings.json")
 
 
 		def collect_settings(self):
@@ -1730,7 +1743,7 @@ def user_defined_settings():
 			except FileNotFoundError:
 				messagebox.showerror(
 					title="Settings not found",
-					message="previous_settings.json is not found.\nClicking \"Okay\" will create this file."
+					message="previous_settings.json is not found.\nCreating an image document will also create this file."
 				)
 				return None
 			
@@ -2243,13 +2256,7 @@ class ImageCompilation:
 		create_image_path_dic(cslo_image_file_paths, "cslo")
 		create_image_path_dic(oct_image_file_paths, "oct")
 
-		
-
-
-
-#################################################################################################################################
-
-
+	
 
 
 	# ====================================================
@@ -2553,190 +2560,140 @@ class ImageCompilation:
 			return individual_mouse_canvas
 
 
+
+
 		# Add the images to the mouse canvas
 		for eye, cslo_and_oct_image_list in self.mouse_image_list[mouse_id].items():
-			for image_modality in self.image_type_objects:	# Loops through the images the user selected they wanted (i.e. BAF, IRAF, horizontal, etc.)
 
-				# Skip OD or OS if user specified
-				if eye_configuration == "OD" and eye == "OS":
-					continue
-				elif eye_configuration == "OS" and eye == "OD":
-					continue
+			# Skip OD or OS if user specified
+			if eye_configuration == "OD" and eye == "OS":
+				continue
+			elif eye_configuration == "OS" and eye == "OD":
+				continue
 
-				
-				def insert_one_image(date):
+
+			def insert_one_image(image_modality, date):
+				image_path_to_use = None
+
+				available_images = [
+					img for img in cslo_and_oct_image_list[image_modality.imager]
+					if img["date"] == date or date == ""
+				]
+
+				# -- Defining the image path --
+				only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
+
+				# If there aren't any images from that imager (cslo/oct)
+				if not available_images:
 					image_path_to_use = None
 
-					available_images = [
-						img for img in cslo_and_oct_image_list[image_modality.imager]
-						if img["date"] == date or date == ""
-					]
+				# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
+				elif only_one_image_exists:
+					for image in available_images:
+						image_path = image["path"]
+						_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
+						if modality == image_modality.image_type_name:
+							image_path_to_use = image_path
+							break
 
-					# -- Defining the image path --
-					only_one_image_exists = not image_modality.select_required and image_modality.multiple_index is None
-
-					# If there aren't any images from that imager (cslo/oct)
-					if not available_images:
-						image_path_to_use = None
-
-					# If the modality shouldn't have multiple images and thus just needs to grab the image that has the correct modality
-					elif only_one_image_exists:
-						for image in available_images:
-							image_path = image["path"]
-							_, _, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
-							if modality == image_modality.image_type_name:
-								image_path_to_use = image_path
-								break
-
-					else:
-						# Create a list of all paths with the modality of interest
-						image_paths_with_same_modality = []
-						for image in available_images:
-							image_path = image["path"]
-							_, image_number, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
-							if modality == image_modality.image_type_name:
-								image_paths_with_same_modality.append((int(image_number), image_path))
-						image_paths_with_same_modality.sort(key=lambda x: x[0])	# Sorting the list by image_number
-						image_paths_with_same_modality = [x[1] for x in image_paths_with_same_modality]	# Making the list just image_path
+				else:
+					# Create a list of all paths with the modality of interest
+					image_paths_with_same_modality = []
+					for image in available_images:
+						image_path = image["path"]
+						_, image_number, _, _, modality = self.convert_path_to_base_name_and_parts(image_path, image_modality.imager)
+						if modality == image_modality.image_type_name:
+							image_paths_with_same_modality.append((int(image_number), image_path))
+					image_paths_with_same_modality.sort(key=lambda x: x[0])  # Sorting the list by image_number
+					image_paths_with_same_modality = [x[1] for x in image_paths_with_same_modality]  # Making the list just image_path
 
 
-						# If we just need to grab the nth image with that modality
-						if image_modality.multiple_index is not None:
-							index_to_use = image_modality.multiple_index
-						
-							# Grab the image with the correct index, unless it can't, then don't use any image
-							try:
-								image_path_to_use = image_paths_with_same_modality[index_to_use]
-								#selected_image = image_paths_with_same_modality[index_to_use]
-								#image_path_to_use = selected_image["path"]
-							except IndexError:
-								image_path_to_use = None
+					# If we just need to grab the nth image with that modality
+					if image_modality.multiple_index is not None:
+						index_to_use = image_modality.multiple_index
 
-						# If the user needs to select the image
-						elif image_modality.select_required:
-							if image_paths_with_same_modality and self.mode == "full":
-								dialog_title = (f"{mouse_id} {eye} - {image_modality.custom_name}")
-								image_path_to_use = user_choose_which_images_to_use(image_paths_with_same_modality, dialog_title)
-							else:
-								image_path_to_use = None
-					
+						# Grab the image with the correct index, unless it can't, then don't use any image
+						try:
+							image_path_to_use = image_paths_with_same_modality[index_to_use]
+						except IndexError:
+							image_path_to_use = None
 
-					# -- Putting the image into the individual mouse canvas --
-					if image_path_to_use:
-						img = Image.open(image_path_to_use)
-						# Crop image
-						if image_modality.imager == "cslo" and self.settings['crop_cslo_text_bool']:
-							img = crop_cslo_image(img)
-						elif image_modality.imager == "oct" and self.settings['oct_crop_bool']:
-							img = crop_oct_image(img)
-					# Insert black box if no image present
-					else:
-						if image_modality.imager == "cslo":
-							w, h = self.cslo_width, self.cslo_height
-						elif image_modality.imager == "oct":
-							w, h = self.oct_width, self.oct_height
-						img = Image.new("RGB", (w, h), color="black")
-
-						if self.mode == "preview_layout_and_images" and image_modality.select_required:
-							draw = ImageDraw.Draw(img)
-							text = "No preview available"
-							font = ImageFont.load_default(size=60)
-							text_w, text_h, baseline_offset = self.measure_text(font, text)
-							x = (w - text_w) / 2
-							y = (h - text_h) / 2
-							draw.text((x, y+baseline_offset), text, font=font, fill="white")
-
-						
+					# If the user needs to select the image
+					elif image_modality.select_required:
+						if image_paths_with_same_modality and self.mode == "full":
+							dialog_title = (f"{mouse_id} {eye} - {image_modality.custom_name}")
+							image_path_to_use = user_choose_which_images_to_use(
+								image_paths_with_same_modality, dialog_title
+							)
+						else:
+							image_path_to_use = None
 
 
-					# Resizing if needed
-					if img.width != self.image_width:
-						new_width = self.image_width
-						w, h = img.size
-						aspect_ratio = h / w
-						new_height = int(new_width * aspect_ratio)
-						img = img.resize((new_width, new_height), Image.LANCZOS)
+				# -- Putting the image into the individual mouse canvas --
+				if image_path_to_use:
+					img = Image.open(image_path_to_use)
+					# Crop image
+					if image_modality.imager == "cslo" and self.settings['crop_cslo_text_bool']:
+						img = crop_cslo_image(img)
+					elif image_modality.imager == "oct" and self.settings['oct_crop_bool']:
+						img = crop_oct_image(img)
+				# Insert black box if no image present
+				else:
+					if image_modality.imager == "cslo":
+						w, h = self.cslo_width, self.cslo_height
+					elif image_modality.imager == "oct":
+						w, h = self.oct_width, self.oct_height
+					img = Image.new("RGB", (w, h), color="black")
 
-					return(img)
+					if self.mode == "preview_layout_and_images" and image_modality.select_required:
+						draw = ImageDraw.Draw(img)
+						text = "No preview available"
+						font = ImageFont.load_default(size=60)
+						text_w, text_h, baseline_offset = self.measure_text(font, text)
+						x = (w - text_w) / 2
+						y = (h - text_h) / 2
+						draw.text((x, y+baseline_offset), text, font=font, fill="white")
 
-					
-				
+				# Resizing if needed
+				if img.width != self.image_width:
+					new_width = self.image_width
+					w, h = img.size
+					aspect_ratio = h / w
+					new_height = int(new_width * aspect_ratio)
+					img = img.resize((new_width, new_height), Image.LANCZOS)
+
+				return img
 
 
-				# Setting x, y offsets
-				if eye == "OD" or eye_configuration == "OS":
-					x_offset = x_offset_od
-					y_offset = y_offset_od
-				elif eye == "OS" and eye_configuration != "OS":
-					x_offset = x_offset_os
-					y_offset = y_offset_os
+			# Setting x, y offsets
+			if eye == "OD" or eye_configuration == "OS":
+				base_x_offset = x_offset_od
+				base_y_offset = y_offset_od
+			elif eye == "OS" and eye_configuration != "OS":
+				base_x_offset = x_offset_os
+				base_y_offset = y_offset_os
 
-				# If there are no dates specified
-				if not self.settings['date_order']:
-					date = ""
-					img = insert_one_image(date)
+
+			# Normalize date iteration so we always loop date first
+			date_list = self.settings['date_order'] if self.settings['date_order'] else [""]
+
+			x_offset = base_x_offset
+
+			for date in date_list:
+				y_offset = base_y_offset
+
+				for image_modality in self.image_type_objects:  # Loops through the images the user selected they wanted (i.e. BAF, IRAF, horizontal, etc.)
+
+					img = insert_one_image(image_modality, date)
+
 					# Pasting img into canvas
 					individual_mouse_canvas.paste(img, (x_offset, y_offset))
-				# If dates are specified
-				else:
-					for date in self.settings['date_order']:
-						img = insert_one_image(date)
-						individual_mouse_canvas.paste(img, (x_offset, y_offset))
-						x_offset += img.width
 
+					y_offset += img.height
 
-
-				# Adjusting offsets
-				if eye == "OD" or eye_configuration == "OS":
-					y_offset_od += img.height
-				elif eye == "OS" and eye_configuration != "OS":
-					y_offset_os += img.height
-
-
-
+				x_offset += img.width
 
 		return individual_mouse_canvas
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-############################################################################################################################################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
