@@ -51,6 +51,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk, UnidentifiedImageError
 import warnings
 warnings.filterwarnings("ignore", message=".*pin_memory.*")
 import subprocess
+try:
+    from conform_cslo_image_pattern import ImageSequenceStandardizer
+    conform_available = True
+except ImportError:
+    conform_available = False
 status("Package import complete")
 def get_reader():
 	"""Return a persistent EasyOCR reader, loading it only once."""
@@ -89,11 +94,9 @@ Bugs:
 
 
 
-
-
-
-
 """
+
+
 ---------------------------
 --- Settings dialog box ---
 ---------------------------
@@ -1287,6 +1290,11 @@ def user_defined_settings():
 			self.rows = []
 			self.drag_data = None
 
+			# Conform cSLO image button
+			if conform_available:
+				cslo_conform_button = tk.Button(selected_frame, text="Conform cSLO image order", command=self.conform_cslo_images)
+				cslo_conform_button.grid(row=2, column=0, padx=5, pady=4)
+
 			
 		# --- Populate available options ---
 		def determine_what_images_are_available(self):
@@ -1574,6 +1582,102 @@ def user_defined_settings():
 
 			# Refresh available list to remove duplicates
 			self.refresh_available_list()
+
+		def conform_cslo_images(self):
+			directories = directory_frame.get_data()["directories"]
+			cslo_directories = []
+			for directory in directories:
+				if directory[1] == "cslo":
+					cslo_directories.append(directory[0])
+
+			if not cslo_directories:
+				messagebox.showerror(
+					title="No cSLO folders",
+					message="No cSLO folders are detected"
+				)
+				return
+			
+			if not self.selected_image_types:
+				messagebox.showerror(
+					title="No image selected",
+					message="No images have bene selected.\nSelect images from the Available Image Types box."
+				)
+				return
+
+			images_types_to_conform = []
+			for image_type in self.selected_image_types:
+				imager = image_type[0].split()
+				if imager[0] == "cSLO":
+					modality = imager[1]
+					custom_name = image_type[1]
+					if modality == custom_name:
+						custom_name = ""
+					image_type = (modality, custom_name)
+					images_types_to_conform.append(image_type)
+	
+
+			def launch_conform_selector(directories: list[str], sequence: list):
+				root = tk.Tk()
+				root.title("Select Directory to Conform")
+
+				tk.Label(root, text="Click a directory to open the conform tool:",
+						font=("", 11, "bold")).pack(padx=15, pady=(12, 4))
+
+				frame = tk.Frame(root)
+				frame.pack(fill="both", expand=True, padx=15, pady=8)
+
+				sb = tk.Scrollbar(frame, orient="vertical")
+				lb = tk.Listbox(frame, yscrollcommand=sb.set, font=("", 10),
+								selectmode="single", activestyle="dotbox", height=min(len(directories), 20))
+				sb.config(command=lb.yview)
+				sb.pack(side="right", fill="y")
+				lb.pack(side="left", fill="both", expand=True)
+
+				for d in directories:
+					# Show last two path parts for readability
+					parts = d.replace("\\", "/").rstrip("/").split("/")
+					label = " / ".join(parts[-2:]) if len(parts) >= 2 else d
+					lb.insert("end", label)
+
+				status_var = tk.StringVar(value="")
+				tk.Label(root, textvariable=status_var, fg="#555555",
+						font=("", 9, "italic")).pack(pady=(0, 4))
+
+				def on_open():
+					selection = lb.curselection()
+					if not selection:
+						status_var.set("Please select a directory first.")
+						return
+					idx = selection[0]
+					directory = directories[idx]
+					status_var.set(f"Opened: {directory}")
+					ImageSequenceStandardizer().run(sequence=sequence, root_folder=directory, parent=root)
+					status_var.set(f"Done: {directory}")
+
+				def on_finished():
+					root.destroy()
+
+				btn_frame = tk.Frame(root)
+				btn_frame.pack(pady=(4, 12))
+
+				tk.Button(btn_frame, text="Open Selected",
+						command=on_open).pack(side="left", padx=8)
+				tk.Button(btn_frame, text="Finished Conforming",
+						command=on_finished).pack(side="left", padx=8)
+
+				# Size and center the window
+				root.update_idletasks()
+				sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+				w = min(root.winfo_reqwidth() + 40, int(sw * 0.6))
+				h = min(root.winfo_reqheight() + 40, int(sh * 0.6))
+				root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+
+				root.mainloop()
+
+			if len(cslo_directories) == 1:
+				ImageSequenceStandardizer().run(sequence=images_types_to_conform, root_folder=cslo_directories[0])
+			else:
+				launch_conform_selector(cslo_directories, images_types_to_conform)
 
 
 		def get_data(self):
@@ -2194,13 +2298,38 @@ class ImageCompilation:
 					if mouse in self.settings["mouse_info_dic"]:
 						mice_directories.append(os.path.join(directory, mouse))
 				
-				for mouse_directory in mice_directories:
+				#########################
+				"""for mouse_directory in mice_directories:
 					for root, dirs, files in os.walk(mouse_directory):	# recursively walk all subfolders
 						folder_name = os.path.basename(root)
 						if folder_name in ("OD", "OS"):
 							for f in files:
 								if f.lower().endswith(tuple(image_extensions)):
+									cslo_image_file_paths.append((os.path.join(root, f), date))"""
+				#########################
+				for mouse_directory in mice_directories:
+					found_standardized = {"OD": False, "OS": False}
+					for root, dirs, files in os.walk(mouse_directory):
+						folder_name = os.path.basename(root)
+						if folder_name == "OD_standardized":
+							found_standardized["OD"] = True
+						elif folder_name == "OS_standardized":
+							found_standardized["OS"] = True
+
+					for root, dirs, files in os.walk(mouse_directory):  # recursively walk all subfolders
+						folder_name = os.path.basename(root)
+
+						use_folder = (
+							folder_name in ("OD_standardized", "OS_standardized") or
+							(folder_name == "OD" and not found_standardized["OD"]) or
+							(folder_name == "OS" and not found_standardized["OS"])
+						)
+
+						if use_folder:
+							for f in files:
+								if f.lower().endswith(tuple(image_extensions)):
 									cslo_image_file_paths.append((os.path.join(root, f), date))
+				#########################
 
 			
 			# Creating a list of file paths for OCT images
