@@ -15,12 +15,14 @@ A single `.jpg` image file containing all selected images arranged in a grid, wi
 ### cSLO Images
 
 Images must be organized into the following folder structure:
-	root_folder/
-		mouseNumber/
-			OD/
-				imageNumber_mouseNumber_OD_modality.tif
-			OS/
-				imageNumber_mouseNumber_OS_modality.tif
+```
+root_folder/
+└── mouseNumber/
+    ├── OD/
+    │   └── imageNumber_mouseNumber_OD_modality.tif
+    └── OS/
+        └── imageNumber_mouseNumber_OS_modality.tif
+```
 
 Files must follow this naming format:
 	imageNumber_mouseNumber_eye_modality
@@ -50,7 +52,7 @@ For example: `42_OD_horizontal.tif`
 This tool is designed to work alongside:
 - `cSLO_image_download` — Downloads and organizes raw cSLO images from Heidelberg Eye Explorer (https://github.com/banderson314/cSLO_image_download)
 - `Convert_OCT_files_to_TIF` — Converts .OCT files to TIF format (https://github.com/banderson314/Convert_OCT_files_to_TIF)
-- `conform_cslo_image_pattern.py` and `export_worker.py` — Standardizes cSLO image sequences into a consistent pattern for proper layout. These scripts need to be in the same folder as in_vivo_image_compilation.py if used, but are not necessary for in_vivo_image_compilation.py to run.
+- `conform_cslo_image_pattern.py` and `export_worker.py` — Standardizes cSLO image sequences into a consistent pattern for proper layout. These scripts need to be in the same folder as `in_vivo_image_compilation.py` if used, but are not necessary for `in_vivo_image_compilation.py` to run.
 
 ## Notes
 
