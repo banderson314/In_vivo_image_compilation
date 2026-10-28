@@ -1,6 +1,4 @@
 """
-Created by Brandon Anderson
-
 ---------------------------
 --- Script organization ---
 ---------------------------
@@ -71,32 +69,8 @@ image_extensions = {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp"}
 
 
 
-"""
-Things left to do:
-An extra optional dialog box with additional settings such as:
-	Margin size
-	Background and text color
-	Text size
-With multiple dates, center the "OD" or "OS" over all of them
-Create the Separate OD/OS function 
-Add lines in between groups
-	
-Updates you should consider including:
-Make margins proportional to images
-Text should also be made proportional to images (for now I'm just making OCT images bigger). When fixed, remove the line that says #self.image_width = 640
-Click on images to allow you to manually change them
-Make a button that adds all available image types
-
-
-Bugs:
 
 """
-
-
-
-"""
-
-
 ---------------------------
 --- Settings dialog box ---
 ---------------------------
@@ -2043,8 +2017,7 @@ def find_oct_retina_bounds(img):
 	if img.ndim == 3:
 		img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-	# Flatten along width (take max across columns) to get brightness by row
-	#row_max = img.max(axis=1).astype(float)
+
 	row_brightness = np.percentile(img, 95, axis=1).astype(float)
 
 	# Compute adaptive threshold based on overall brightness
@@ -2053,7 +2026,6 @@ def find_oct_retina_bounds(img):
 	cutoff = max(mean + std, 50)
 
 	# Find where the retina (bright region) exists
-	#bright_rows = np.where(row_max > cutoff)[0]
 	bright_rows = np.where(row_brightness > cutoff)[0]
 
 	if bright_rows.size == 0:

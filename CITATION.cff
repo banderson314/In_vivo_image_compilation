@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software for any publications, please cite it as below."
+authors:
+- family-names: "Anderson"
+  given-names: "Brandon"
+  orcid: "https://orcid.org/0000-0001-6502-9216"
+title: "In Vivo Retinal Imaging Summary Document Creator"
+version: "2.7"
+date-released: 2026-10-28
+url: "https://github.com/banderson314/In_vivo_image_compilation"
