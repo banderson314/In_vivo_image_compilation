@@ -6,5 +6,6 @@ authors:
   orcid: "https://orcid.org/0000-0001-6502-9216"
 title: "In Vivo Retinal Imaging Summary Document Creator"
 version: "2.5"
+doi: "10.5281/zenodo.23744495"
 date-released: 2026-10-28
 url: "https://github.com/banderson314/In_vivo_image_compilation"
